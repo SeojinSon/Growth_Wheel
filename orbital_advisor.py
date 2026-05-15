@@ -20,7 +20,7 @@ except ImportError:
     _install("customtkinter")
     import customtkinter as ctk
 
-import os, urllib.request, threading
+import os, urllib.request, ssl, threading
 from tkinter import messagebox
 
 ORBIT_CFG = {
@@ -93,7 +93,10 @@ def get_recommendation(analyses, cur, ref_left, is_even, main_prob):
 def fetch_update(callback):
     def _worker():
         try:
-            with urllib.request.urlopen(UPDATE_URL, timeout=10) as r:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with urllib.request.urlopen(UPDATE_URL, timeout=10, context=ctx) as r:
                 code = r.read().decode("utf-8")
             new_ver = "0.0.0"
             for line in code.splitlines():
@@ -127,7 +130,7 @@ class App(ctk.CTk):
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
         self.configure(fg_color=self.BG)
-        self.title(f"운명의 궤도 어드바이저  v{VERSION}")
+        self.title(f"운파고  v{VERSION}")
         self.geometry("740x820")
         self.minsize(620, 600)
         self._init_state()
@@ -143,7 +146,7 @@ class App(ctk.CTk):
     def _build_chrome(self):
         bar = ctk.CTkFrame(self, fg_color="#0D1525", height=52, corner_radius=0)
         bar.pack(fill="x"); bar.pack_propagate(False)
-        ctk.CTkLabel(bar, text="✦ 운명의 궤도 어드바이저 ✦",
+        ctk.CTkLabel(bar, text="✦ 운파고 ✦",
                      font=ctk.CTkFont(size=16, weight="bold"),
                      text_color=self.GOLD).pack(side="left", padx=16)
         ctk.CTkLabel(bar, text=f"v{VERSION}",
