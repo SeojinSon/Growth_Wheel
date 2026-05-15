@@ -158,7 +158,7 @@ class App(ctk.CTk):
     def _build_chrome(self):
         bar=ctk.CTkFrame(self, fg_color="#0D1525", height=52, corner_radius=0)
         bar.pack(fill="x"); bar.pack_propagate(False)
-        ctk.CTkLabel(bar, text="✦ 운파고 ✦", font=ctk.CTkFont(size=16,weight="bold"),
+        ctk.CTkLabel(bar, text="✦ 운파고 ✦", font=ctk.CTkFont(size=18,weight="bold"),
                      text_color=self.GOLD).pack(side="left", padx=16)
         ctk.CTkLabel(bar, text=f"v{VERSION}", font=ctk.CTkFont(size=10),
                      text_color="#2A3A55").pack(side="right", padx=4)
@@ -179,22 +179,23 @@ class App(ctk.CTk):
                        border_width=1, border_color=self.BORDER, **kw)
         f.pack(fill="x", padx=2, pady=4); return f
 
-    def _lbl(self, p, text, size=13, color=None, bold=False, **kw):
+    def _lbl(self, p, text, size=14, color=None, bold=False, **kw):
         return ctk.CTkLabel(p, text=text,
             font=ctk.CTkFont(size=size, weight="bold" if bold else "normal"),
             text_color=color or self.TEXT, **kw)
 
     def _sec(self, p, text):
-        ctk.CTkLabel(p, text=text.upper(), font=ctk.CTkFont(size=10),
+        ctk.CTkLabel(p, text=text.upper(), font=ctk.CTkFont(size=12),
                      text_color=self.MUTED).pack(anchor="w", padx=12, pady=(10,2))
 
     def _go(self, phase): self.phase=phase; self._render()
 
     def _gem_btn(self, parent, gem, cmd):
         c=GEM_COLOR.get(gem,"#888"); bg=GEM_BG.get(gem,"#1C2A40")
-        ctk.CTkButton(parent, text=gem, width=88, height=38,
+        ctk.CTkButton(parent, text=gem, width=96, height=42,
             fg_color=bg, hover_color=c, text_color=c,
             border_width=1, border_color=c, corner_radius=8,
+            font=ctk.CTkFont(size=14),
             command=cmd).pack(side="left", padx=4, pady=4)
 
     def _slot_grid(self, parent):
@@ -213,7 +214,7 @@ class App(ctk.CTk):
                 fg_color=fg, hover_color=fg,
                 text_color=gc if gem else ("#C9A84C" if cur else "#334455"),
                 border_width=bw, border_color=bd, corner_radius=sz//2,
-                font=ctk.CTkFont(size=10), state="disabled").pack(side="left", padx=2)
+                font=ctk.CTkFont(size=12), state="disabled").pack(side="left", padx=2)
 
     # ── 페이지들 ──────────────────────────────────────────────
     def _page_orbit(self):
@@ -221,7 +222,7 @@ class App(ctk.CTk):
         for oid,cfg in ORBIT_CFG.items():
             ctk.CTkButton(self.scroll,
                 text=f"{cfg['name']}     슬롯 {cfg['slots']}개  ·  보석 {len(cfg['gems'])}종  ·  최대 {cfg['maxFills']}개/슬롯",
-                font=ctk.CTkFont(size=13), height=50, anchor="w",
+                font=ctk.CTkFont(size=15), height=54, anchor="w",
                 fg_color=self.CARD, hover_color="#1C2A40", text_color=self.TEXT,
                 border_width=1, border_color=self.BORDER, corner_radius=8,
                 command=lambda o=oid: self._sel_orbit(o)).pack(fill="x", padx=2, pady=3)
@@ -268,9 +269,9 @@ class App(ctk.CTk):
         sbar=self._card()
         row=ctk.CTkFrame(sbar, fg_color="transparent"); row.pack(fill="x", padx=12, pady=10)
         slot_txt=f"슬롯 {self.cur_slot}  {'🎯 짝수' if is_even else '홀수'}" if self.cur_slot<=max_s else "✓ 전체 완료"
-        self._lbl(row, slot_txt, size=15, color="#33CC66" if is_even else "#FFB800", bold=True).pack(side="left")
-        self._lbl(row, f"선택 {self.sel_left}회", size=12, color=self.GOLD).pack(side="right", padx=12)
-        self._lbl(row, f"새로고침 {self.ref_left}/5", size=12,
+        self._lbl(row, slot_txt, size=17, color="#33CC66" if is_even else "#FFB800", bold=True).pack(side="left")
+        self._lbl(row, f"선택 {self.sel_left}회", size=14, color=self.GOLD).pack(side="right", padx=12)
+        self._lbl(row, f"새로고침 {self.ref_left}/5", size=14,
                   color="#4499FF" if self.ref_left>0 else "#334").pack(side="right", padx=4)
 
         gc=self._card()
@@ -285,21 +286,23 @@ class App(ctk.CTk):
 
         for i in range(3):
             row=ctk.CTkFrame(oc, fg_color="transparent"); row.pack(fill="x", padx=10, pady=3)
-            self._lbl(row, f"{i+1}.", size=12, color=self.MUTED).pack(side="left", padx=(0,6))
+            self._lbl(row, f"{i+1}.", size=14, color=self.MUTED).pack(side="left", padx=(0,6))
             gv=ctk.StringVar(value=self.opt_gems[i] or "-- 보석 --")
             ctk.CTkOptionMenu(row, variable=gv, values=["-- 보석 --"]+cfg["gems"]+["랜덤"],
-                width=120, height=30, fg_color="#0A1020", button_color=self.BORDER,
+                width=130, height=34, fg_color="#0A1020", button_color=self.BORDER,
                 button_hover_color="#2A3A55", dropdown_fg_color="#0D1525",
+                font=ctk.CTkFont(size=14),
                 command=lambda v,idx=i: self._gem_changed(idx)).pack(side="left", padx=4)
             self._opt_gem_vars.append(gv)
             cv=ctk.StringVar(value=str(self.opt_counts[i]))
             ctk.CTkOptionMenu(row, variable=cv, values=["1","2","3","4","5","6"],
-                width=68, height=30, fg_color="#0A1020", button_color=self.BORDER,
+                width=74, height=34, fg_color="#0A1020", button_color=self.BORDER,
                 button_hover_color="#2A3A55", dropdown_fg_color="#0D1525",
+                font=ctk.CTkFont(size=14),
                 command=lambda v,idx=i: self._cnt_changed(idx)).pack(side="left", padx=4)
             self._opt_cnt_vars.append(cv)
-            rl=self._lbl(row,"",size=11,color=self.GOLD); rl.pack(side="left",padx=6)
-            tl=self._lbl(row,"",size=11,color="#888"); tl.pack(side="left",padx=2)
+            rl=self._lbl(row,"",size=13,color=self.GOLD); rl.pack(side="left",padx=6)
+            tl=self._lbl(row,"",size=13,color="#888"); tl.pack(side="left",padx=2)
             self._opt_rate_lbls.append(rl); self._opt_tag_lbls.append(tl)
 
         self._refresh_opt_labels(cfg)
@@ -364,8 +367,8 @@ class App(ctk.CTk):
         rc=ctk.CTkFrame(self.scroll, fg_color=self.CARD, corner_radius=10,
                         border_width=1, border_color=color)
         rc.pack(fill="x", padx=2, pady=4)
-        self._lbl(rc, title, size=13, color=color, bold=True).pack(anchor="w", padx=12, pady=(10,2))
-        self._lbl(rc, r["msg"], size=11, color="#A0AABB").pack(anchor="w", padx=12, pady=(0,8))
+        self._lbl(rc, title, size=15, color=color, bold=True).pack(anchor="w", padx=12, pady=(10,2))
+        self._lbl(rc, r["msg"], size=13, color="#A0AABB").pack(anchor="w", padx=12, pady=(0,8))
         br=ctk.CTkFrame(rc, fg_color="transparent"); br.pack(anchor="w", padx=12, pady=(0,12))
         if r["type"]=="pick" and r["idx"] is not None:
             ctk.CTkButton(br, text=f"옵션 {r['idx']+1} 선택", height=32,
@@ -387,7 +390,7 @@ class App(ctk.CTk):
         g=self.opt_gems[self.pending_idx]; c=self.opt_counts[self.pending_idx]; r=get_rate(g,c)
         pc=self._card()
         self._lbl(pc, f"옵션 {self.pending_idx+1}  ({g}  {c}개  ·  {r*100:.0f}%)  결과는?",
-                  size=13, color=self.GOLD).pack(padx=12, pady=(12,8))
+                  size=15, color=self.GOLD).pack(padx=12, pady=(12,8))
         br=ctk.CTkFrame(pc, fg_color="transparent"); br.pack(padx=12, pady=(0,12))
         ctk.CTkButton(br, text="✅ 성공!", width=110, height=38,
             fg_color="#1A3A1A", hover_color="#2A5A2A", text_color="#33CC66",
@@ -521,8 +524,8 @@ class App(ctk.CTk):
             ("❌","#FF5555","모두 재부여 / 위치 랜덤 변경 / 다시 시작  — 절대 금지"),
         ]:
             r=ctk.CTkFrame(gd,fg_color="transparent"); r.pack(fill="x",padx=8,pady=2)
-            self._lbl(r,icon,size=12,color=color).pack(side="left",padx=(4,8))
-            self._lbl(r,text,size=11,color="#A0AABB").pack(side="left")
+            self._lbl(r,icon,size=14,color=color).pack(side="left",padx=(4,8))
+            self._lbl(r,text,size=13,color="#A0AABB").pack(side="left")
         ctk.CTkLabel(gd,text="").pack(pady=2)
 
         br=ctk.CTkFrame(self.scroll,fg_color="transparent"); br.pack(fill="x",padx=4,pady=8)
