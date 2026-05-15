@@ -639,7 +639,7 @@ class App(ctk.CTk):
     def _on_settings(self):
         w = ctk.CTkToplevel(self)
         w.title("설정")
-        w.geometry("520x220")
+        w.geometry("520x320")
         w.configure(fg_color="#0D1525")
         w.grab_set()
 
