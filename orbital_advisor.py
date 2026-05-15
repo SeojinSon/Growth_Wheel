@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.1.0"
+VERSION = "1.1.5"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -47,6 +47,8 @@ GEM_COLOR  = {"루비":"#FF5555","토파즈":"#FFB800","에메랄드":"#33CC66",
               "사파이어":"#4499FF","자수정":"#AA66FF","랜덤":"#888899","?":"#555566"}
 GEM_BG     = {"루비":"#3D1515","토파즈":"#3D2E00","에메랄드":"#0D2E16",
               "사파이어":"#0D1A3D","자수정":"#1E0D3D","랜덤":"#2A2A2A","?":"#1A1A2A"}
+GEM_HOVER  = {"루비":"#5A2020","토파즈":"#5A4400","에메랄드":"#1A4A28",
+              "사파이어":"#1A2A5A","자수정":"#2E1A5A","랜덤":"#3A3A3A","?":"#2A2A3A"}
 GEM_ALIASES = {
     "루비":    ["루비","루바","루이"],
     "토파즈":  ["토파즈","토파","토피즈","토파스"],
@@ -166,12 +168,21 @@ class App(ctk.CTk):
             fg_color="#1C2A40", hover_color="#2A3A55", text_color="#4499FF",
             corner_radius=6, command=self._on_update)
         self._upd_btn.pack(side="right", padx=8)
+        self._home_btn=ctk.CTkButton(bar, text="🏠 홈", width=72, height=32,
+            fg_color="#1C2A40", hover_color="#2A3A55", text_color=self.MUTED,
+            corner_radius=6, command=self._go_home)
+        self._home_btn.pack(side="right", padx=4)
         self.scroll=ctk.CTkScrollableFrame(self, fg_color=self.BG, scrollbar_button_color="#1C2A40")
         self.scroll.pack(fill="both", expand=True, padx=10, pady=8)
 
     def _render(self):
         for w in self.scroll.winfo_children(): w.destroy()
         self.rec=None; self.pending_idx=None
+        # 홈 버튼: 메인(orbit) 페이지에서는 숨기기
+        if self.phase == "orbit":
+            self._home_btn.pack_forget()
+        else:
+            self._home_btn.pack(side="right", padx=4)
         getattr(self, f"_page_{self.phase}")()
 
     def _card(self, **kw):
@@ -191,9 +202,9 @@ class App(ctk.CTk):
     def _go(self, phase): self.phase=phase; self._render()
 
     def _gem_btn(self, parent, gem, cmd):
-        c=GEM_COLOR.get(gem,"#888"); bg=GEM_BG.get(gem,"#1C2A40")
+        c=GEM_COLOR.get(gem,"#888"); bg=GEM_BG.get(gem,"#1C2A40"); hv=GEM_HOVER.get(gem,"#2A3A55")
         ctk.CTkButton(parent, text=gem, width=96, height=42,
-            fg_color=bg, hover_color=c, text_color=c,
+            fg_color=bg, hover_color=hv, text_color=c,
             border_width=1, border_color=c, corner_radius=8,
             font=ctk.CTkFont(size=14),
             command=cmd).pack(side="left", padx=4, pady=4)
@@ -265,6 +276,11 @@ class App(ctk.CTk):
         is_even=self.cur_slot%2==0
         ev_list=[s for s in range(1,max_s+1) if s%2==0]
         main_cnt=sum(1 for s in ev_list if self.slot_map.get(s)==self.main_gem)
+
+        # 뒤로가기
+        ctk.CTkButton(self.scroll, text="← 뒤로", width=72, height=28,
+            fg_color="transparent", hover_color=self.BORDER, text_color=self.MUTED,
+            command=self._back_to_setup).pack(anchor="w", padx=4, pady=(2,0))
 
         sbar=self._card()
         row=ctk.CTkFrame(sbar, fg_color="transparent"); row.pack(fill="x", padx=12, pady=10)
@@ -418,6 +434,17 @@ class App(ctk.CTk):
         self.opt_gems=["","",""]; self.opt_counts=[1,1,1]
         self.pending_idx=None; self.rec=None; self.analyses=[None,None,None]
 
+    def _go_home(self):
+        if self.phase in ("orbit", "main", "sub"):
+            self._init_state(); self._go("orbit")
+        else:
+            if messagebox.askyesno("홈으로", "현재 진행 상황이 초기화돼요.\n홈으로 돌아갈까요?"):
+                self._init_state(); self._go("orbit")
+
+    def _back_to_setup(self):
+        if messagebox.askyesno("설정 변경", "현재 진행 상황이 초기화돼요.\n설정을 변경할까요?"):
+            self._init_state(); self._go("orbit")
+
     def _do_refresh(self): self.ref_left-=1; self._reset_opts(); self._render()
 
     # ── 캡처 기능 ─────────────────────────────────────────────
@@ -563,11 +590,20 @@ class App(ctk.CTk):
     def _update_done(self, status, data, new_ver):
         self._upd_btn.configure(text="🔄 업데이트", state="normal")
         if status=="err": messagebox.showerror("오류", f"업데이트 확인 실패:\n{data}"); return
-        if new_ver==VERSION: messagebox.showinfo("최신 버전", f"이미 최신 버전이에요! (v{VERSION})")
-        else:
+
+        def ver_tuple(v):
+            try: return tuple(int(x) for x in v.split('.'))
+            except: return (0,0,0)
+
+        cur = ver_tuple(VERSION)
+        new = ver_tuple(new_ver)
+
+        if new > cur:
             if messagebox.askyesno("업데이트 발견",
                     f"새 버전: v{new_ver}  (현재 v{VERSION})\n업데이트할까요?\n(앱이 재시작됩니다)"):
                 apply_update(data)
+        else:
+            messagebox.showinfo("최신 버전", f"이미 최신 버전이에요! (v{VERSION})")
 
 if __name__ == "__main__":
     app=App(); app.mainloop()
