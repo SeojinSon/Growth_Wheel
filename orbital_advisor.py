@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운명의 궤도 어드바이저
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
-# ── 자동 의존성 설치 ──────────────────────────────────────────
+# ════════════════════════════════════════════════════
+#  ★ 업데이트 URL — 여기에 GitHub Raw URL 입력하세요
+UPDATE_URL = "https://raw.githubusercontent.com/SeojinSon/Growth_Wheel/main/orbital_advisor.py"
+# ════════════════════════════════════════════════════
+
 import subprocess, sys
 
 def _install(pkg):
@@ -16,35 +20,30 @@ except ImportError:
     _install("customtkinter")
     import customtkinter as ctk
 
-import json, os, urllib.request, threading
+import os, urllib.request, threading
 from tkinter import messagebox
 
-# ── 상수 ──────────────────────────────────────────────────────
-CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "advisor_config.json")
-
 ORBIT_CFG = {
-    "star": {"name":"⭐ 별",  "slots":8,  "maxFills":5, "gems":["루비","토파즈","에메랄드"],                        "gemCount":3, "mainProb":0.222},
-    "moon": {"name":"🌙 달",  "slots":10, "maxFills":7, "gems":["루비","토파즈","에메랄드","사파이어"],               "gemCount":4, "mainProb":0.167},
-    "sun":  {"name":"☀️ 태양","slots":12, "maxFills":8, "gems":["루비","토파즈","에메랄드","사파이어","자수정"],       "gemCount":5, "mainProb":0.133},
+    "star": {"name":"⭐ 별",   "slots":8,  "maxFills":5, "gems":["루비","토파즈","에메랄드"],                   "gemCount":3, "mainProb":0.222},
+    "moon": {"name":"🌙 달",   "slots":10, "maxFills":7, "gems":["루비","토파즈","에메랄드","사파이어"],          "gemCount":4, "mainProb":0.167},
+    "sun":  {"name":"☀️ 태양", "slots":12, "maxFills":8, "gems":["루비","토파즈","에메랄드","사파이어","자수정"], "gemCount":5, "mainProb":0.133},
 }
 
 FIXED_RATE = {1:0.9, 2:0.7, 3:0.4, 4:0.3, 5:0.2, 6:0.1}
 RAND_RATE  = {1:0.9, 3:0.5, 5:0.3}
 
 GEM_COLOR = {
-    "루비":"#FF5555", "토파즈":"#FFB800", "에메랄드":"#33CC66",
-    "사파이어":"#4499FF", "자수정":"#AA66FF", "랜덤":"#888899", "?":"#555566",
+    "루비":"#FF5555","토파즈":"#FFB800","에메랄드":"#33CC66",
+    "사파이어":"#4499FF","자수정":"#AA66FF","랜덤":"#888899","?":"#555566",
 }
 TAG_COLOR = {"BEST":"#33CC66","GOOD":"#88CC44","OK":"#FFB800","NEUTRAL":"#888888","RISKY":"#FF8800","BAD":"#FF5555"}
 TAG_LABEL = {"BEST":"최선 ✅✅","GOOD":"좋음 ✅","OK":"보통","NEUTRAL":"중립","RISKY":"위험 ⚠️","BAD":"나쁨 ❌"}
 
-# ── 분석 엔진 ─────────────────────────────────────────────────
 def get_rate(gem, count):
     return RAND_RATE.get(count, 0.3) if gem == "랜덤" else FIXED_RATE.get(count, 0.1)
 
 def score_option(gem, count, cur, max_s, main, sub, gem_cnt):
-    if not gem:
-        return None
+    if not gem: return None
     sr   = get_rate(gem, count)
     end  = min(cur + count - 1, max_s)
     aff  = list(range(cur, end + 1))
@@ -53,69 +52,48 @@ def score_option(gem, count, cur, max_s, main, sub, gem_cnt):
 
     if gem == main:
         if evs:
-            return {"score": sr*(len(evs)*10 + len(odds)*0.5),
-                    "verdict": f"짝수 {'+'.join(map(str,evs))}번 → 메인 {sr*100:.0f}%",
-                    "tag":"BEST", "evs":evs, "odds":odds}
-        return {"score":1, "verdict":"홀수만 채움 (OK)", "tag":"OK", "evs":evs, "odds":odds}
+            return {"score":sr*(len(evs)*10+len(odds)*0.5),
+                    "verdict":f"짝수 {'+'.join(map(str,evs))}번 → 메인 {sr*100:.0f}%",
+                    "tag":"BEST","evs":evs,"odds":odds}
+        return {"score":1,"verdict":"홀수만 채움 (OK)","tag":"OK","evs":evs,"odds":odds}
 
     if gem == "랜덤":
         p = 1/gem_cnt
-        score = sr*(len(evs)*10*p + len(odds)*p)
+        score = sr*(len(evs)*10*p+len(odds)*p)
         if evs:
-            return {"score":score,
-                    "verdict": f"짝수포함 랜덤 — 메인 기대 {sr*len(evs)*p*100:.1f}%",
-                    "tag":"RISKY", "evs":evs, "odds":odds}
-        return {"score":score, "verdict":"홀수만 랜덤 채움", "tag":"OK", "evs":evs, "odds":odds}
+            return {"score":score,"verdict":f"짝수포함 랜덤 — 메인 기대 {sr*len(evs)*p*100:.1f}%",
+                    "tag":"RISKY","evs":evs,"odds":odds}
+        return {"score":score,"verdict":"홀수만 랜덤 채움","tag":"OK","evs":evs,"odds":odds}
 
     if sub and sub != "상관없음" and gem == sub:
         if evs:
-            return {"score":-5, "verdict":f"짝수 {'+'.join(map(str,evs))}번에 부보석 침범 ❌",
-                    "tag":"BAD", "evs":evs, "odds":odds}
-        return {"score":sr*len(odds)*3, "verdict":"홀수에 부보석 ✅", "tag":"GOOD", "evs":evs, "odds":odds}
+            return {"score":-5,"verdict":f"짝수 {'+'.join(map(str,evs))}번에 부보석 침범 ❌",
+                    "tag":"BAD","evs":evs,"odds":odds}
+        return {"score":sr*len(odds)*3,"verdict":"홀수에 부보석 ✅","tag":"GOOD","evs":evs,"odds":odds}
 
-    # 기타 보석
     if evs:
-        return {"score":-8, "verdict":f"짝수 {'+'.join(map(str,evs))}번에 잘못된 보석 ❌",
-                "tag":"BAD", "evs":evs, "odds":odds}
-    return {"score":sr*len(odds)*0.5, "verdict":"홀수만 채움", "tag":"NEUTRAL", "evs":evs, "odds":odds}
+        return {"score":-8,"verdict":f"짝수 {'+'.join(map(str,evs))}번에 잘못된 보석 ❌",
+                "tag":"BAD","evs":evs,"odds":odds}
+    return {"score":sr*len(odds)*0.5,"verdict":"홀수만 채움","tag":"NEUTRAL","evs":evs,"odds":odds}
 
 def get_recommendation(analyses, cur, ref_left, is_even, main_prob):
-    valid = [(i, a) for i, a in enumerate(analyses) if a]
-    if not valid:
-        return None
+    valid = [(i,a) for i,a in enumerate(analyses) if a]
+    if not valid: return None
     best_i, best_a = max(valid, key=lambda x: x[1]["score"])
-    p_good     = 1 - (1 - main_prob) ** 3
-    refresh_ev = p_good * (9 if is_even else 3) * 0.7
-
+    p_good     = 1-(1-main_prob)**3
+    refresh_ev = p_good*(9 if is_even else 3)*0.7
     if best_a["score"] <= 0 and ref_left > 0:
-        return {"type":"refresh", "msg":"좋은 옵션이 없어요. 새로고침!", "idx":None}
+        return {"type":"refresh","msg":"좋은 옵션이 없어요. 새로고침!","idx":None}
     if is_even and best_a["score"] < refresh_ev and ref_left > 0:
-        return {"type":"refresh",
-                "msg":f"새로고침 기대값({refresh_ev:.1f}) > 현재 최선({best_a['score']:.1f}). 새로고침!",
-                "idx":None}
+        return {"type":"refresh","msg":f"새로고침 기대값({refresh_ev:.1f}) > 현재 최선({best_a['score']:.1f}). 새로고침!","idx":None}
     if best_a["score"] < 0:
-        return {"type":"warn", "msg":"모든 옵션이 짝수를 망칩니다. 새로고침이 없으면 덜 나쁜 것 선택.", "idx":best_i}
-    return {"type":"pick", "msg":best_a["verdict"], "idx":best_i}
+        return {"type":"warn","msg":"모든 옵션이 짝수를 망칩니다. 새로고침이 없으면 덜 나쁜 것 선택.","idx":best_i}
+    return {"type":"pick","msg":best_a["verdict"],"idx":best_i}
 
-# ── 설정 ──────────────────────────────────────────────────────
-def load_config():
-    try:
-        if os.path.exists(CONFIG_FILE):
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {"update_url": ""}
-
-def save_config(cfg):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
-
-# ── 자동 업데이트 ─────────────────────────────────────────────
-def fetch_update(url, callback):
+def fetch_update(callback):
     def _worker():
         try:
-            with urllib.request.urlopen(url, timeout=10) as r:
+            with urllib.request.urlopen(UPDATE_URL, timeout=10) as r:
                 code = r.read().decode("utf-8")
             new_ver = "0.0.0"
             for line in code.splitlines():
@@ -136,14 +114,13 @@ def apply_update(new_code):
     subprocess.Popen([sys.executable, path])
     sys.exit(0)
 
-# ── 앱 ────────────────────────────────────────────────────────
 class App(ctk.CTk):
-    BG      = "#070B14"
-    CARD    = "#0D1525"
-    BORDER  = "#1C2A40"
-    GOLD    = "#C9A84C"
-    TEXT    = "#D8DFF0"
-    MUTED   = "#5A7090"
+    BG=     "#070B14"
+    CARD=   "#0D1525"
+    BORDER= "#1C2A40"
+    GOLD=   "#C9A84C"
+    TEXT=   "#D8DFF0"
+    MUTED=  "#5A7090"
 
     def __init__(self):
         super().__init__()
@@ -153,60 +130,37 @@ class App(ctk.CTk):
         self.title(f"운명의 궤도 어드바이저  v{VERSION}")
         self.geometry("740x820")
         self.minsize(620, 600)
-
-        self.cfg_data = load_config()
         self._init_state()
         self._build_chrome()
         self._render()
 
-    # ── 상태 초기화 ───────────────────────────────────────────
     def _init_state(self):
-        self.phase       = "orbit"      # orbit | main | sub | paint | reverse | done
-        self.orbit       = None
-        self.main_gem    = None
-        self.sub_gem     = None
-        self.cur_slot    = 1
-        self.sel_left    = 10
-        self.ref_left    = 5
-        self.slot_map    = {}           # slot# -> gem
-        self.opt_gems    = ["","",""]
-        self.opt_counts  = [1,1,1]
-        self.pending_idx = None
-        self.analyses    = [None,None,None]
-        self.rec         = None
+        self.phase="orbit"; self.orbit=None; self.main_gem=None; self.sub_gem=None
+        self.cur_slot=1; self.sel_left=10; self.ref_left=5; self.slot_map={}
+        self.opt_gems=["","",""]; self.opt_counts=[1,1,1]
+        self.pending_idx=None; self.analyses=[None,None,None]; self.rec=None
 
-    # ── 고정 UI (상단바 + 스크롤 영역) ───────────────────────
     def _build_chrome(self):
         bar = ctk.CTkFrame(self, fg_color="#0D1525", height=52, corner_radius=0)
-        bar.pack(fill="x")
-        bar.pack_propagate(False)
-
+        bar.pack(fill="x"); bar.pack_propagate(False)
         ctk.CTkLabel(bar, text="✦ 운명의 궤도 어드바이저 ✦",
                      font=ctk.CTkFont(size=16, weight="bold"),
                      text_color=self.GOLD).pack(side="left", padx=16)
-
+        ctk.CTkLabel(bar, text=f"v{VERSION}",
+                     font=ctk.CTkFont(size=10), text_color="#2A3A55").pack(side="right", padx=4)
         self._upd_btn = ctk.CTkButton(bar, text="🔄 업데이트", width=100, height=32,
             fg_color="#1C2A40", hover_color="#2A3A55", text_color="#4499FF",
             corner_radius=6, command=self._on_update)
         self._upd_btn.pack(side="right", padx=8)
-
-        ctk.CTkButton(bar, text="⚙️ 설정", width=72, height=32,
-            fg_color="#1C2A40", hover_color="#2A3A55", text_color=self.MUTED,
-            corner_radius=6, command=self._on_settings).pack(side="right", padx=4)
-
         self.scroll = ctk.CTkScrollableFrame(self, fg_color=self.BG,
                                               scrollbar_button_color="#1C2A40")
         self.scroll.pack(fill="both", expand=True, padx=10, pady=8)
 
-    # ── 렌더링 ────────────────────────────────────────────────
     def _render(self):
-        for w in self.scroll.winfo_children():
-            w.destroy()
-        self.rec         = None
-        self.pending_idx = None
+        for w in self.scroll.winfo_children(): w.destroy()
+        self.rec=None; self.pending_idx=None
         getattr(self, f"_page_{self.phase}")()
 
-    # ── 공통 위젯 ─────────────────────────────────────────────
     def _card(self, **kw):
         f = ctk.CTkFrame(self.scroll, fg_color=self.CARD, corner_radius=10,
                          border_width=1, border_color=self.BORDER, **kw)
@@ -219,52 +173,38 @@ class App(ctk.CTk):
                             text_color=color or self.TEXT, **kw)
 
     def _sec(self, p, text):
-        ctk.CTkLabel(p, text=text.upper(),
-                     font=ctk.CTkFont(size=10), text_color=self.MUTED
-                     ).pack(anchor="w", padx=12, pady=(10,2))
-
-    def _back(self, phase):
-        ctk.CTkButton(self.scroll, text="← 뒤로", width=72, height=28,
-            fg_color="transparent", hover_color=self.BORDER,
-            text_color=self.MUTED,
-            command=lambda: self._go(phase)).pack(anchor="w", padx=4, pady=(2,0))
+        ctk.CTkLabel(p, text=text.upper(), font=ctk.CTkFont(size=10),
+                     text_color=self.MUTED).pack(anchor="w", padx=12, pady=(10,2))
 
     def _go(self, phase):
-        self.phase = phase
-        self._render()
+        self.phase=phase; self._render()
 
-    def _gem_btn(self, parent, gem, cmd, side="left"):
-        c = GEM_COLOR.get(gem, "#888")
-        b = ctk.CTkButton(parent, text=gem, width=88, height=38,
+    def _gem_btn(self, parent, gem, cmd):
+        c = GEM_COLOR.get(gem,"#888")
+        ctk.CTkButton(parent, text=gem, width=88, height=38,
             fg_color=c+"33", hover_color=c+"55", text_color=c,
-            border_width=1, border_color=c, corner_radius=8, command=cmd)
-        b.pack(side=side, padx=4, pady=4)
-        return b
+            border_width=1, border_color=c, corner_radius=8,
+            command=cmd).pack(side="left", padx=4, pady=4)
 
-    # ── 슬롯 그리드 ───────────────────────────────────────────
     def _slot_grid(self, parent):
-        cfg = ORBIT_CFG[self.orbit]
-        row = ctk.CTkFrame(parent, fg_color="transparent")
+        cfg=ORBIT_CFG[self.orbit]
+        row=ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(padx=8, pady=8)
         for n in range(1, cfg["slots"]+1):
-            ev  = n % 2 == 0
-            gem = self.slot_map.get(n)
-            cur = n == self.cur_slot
-            gc  = GEM_COLOR.get(gem, "#444") if gem else "#444"
-            sz  = 46 if ev else 35
-            fg  = gc+"22" if gem else ("#1A2A40" if cur else "#0A1020")
-            bd  = "#C9A84C" if cur else (gc if gem else ("#2A3A55" if ev else "#1A2535"))
-            bw  = 2 if cur else (2 if ev else 1)
-            txt = (gem[:2] if gem and gem != "?" else ("?" if gem else str(n)))
-            sub_txt = "✓" if ev and gem == self.main_gem else ""
-            b = ctk.CTkButton(row, text=f"{txt}\n{sub_txt}", width=sz, height=sz,
+            ev=n%2==0; gem=self.slot_map.get(n); cur=n==self.cur_slot
+            gc=GEM_COLOR.get(gem,"#444") if gem else "#444"
+            sz=46 if ev else 35
+            fg=gc+"22" if gem else ("#1A2A40" if cur else "#0A1020")
+            bd="#C9A84C" if cur else (gc if gem else ("#2A3A55" if ev else "#1A2535"))
+            bw=2 if cur else (2 if ev else 1)
+            txt=(gem[:2] if gem and gem!="?" else ("?" if gem else str(n)))
+            sub_txt="✓" if ev and gem==self.main_gem else ""
+            ctk.CTkButton(row, text=f"{txt}\n{sub_txt}", width=sz, height=sz,
                 fg_color=fg, hover_color=fg,
                 text_color=gc if gem else ("#C9A84C" if cur else "#334455"),
                 border_width=bw, border_color=bd, corner_radius=sz//2,
-                font=ctk.CTkFont(size=10), state="disabled")
-            b.pack(side="left", padx=2)
+                font=ctk.CTkFont(size=10), state="disabled").pack(side="left", padx=2)
 
-    # ── 페이지: 궤도 선택 ─────────────────────────────────────
     def _page_orbit(self):
         self._sec(self.scroll, "궤도 선택")
         for oid, cfg in ORBIT_CFG.items():
@@ -273,40 +213,39 @@ class App(ctk.CTk):
                 font=ctk.CTkFont(size=13), height=50, anchor="w",
                 fg_color=self.CARD, hover_color="#1C2A40", text_color=self.TEXT,
                 border_width=1, border_color=self.BORDER, corner_radius=8,
-                command=lambda o=oid: self._sel_orbit(o)
-            ).pack(fill="x", padx=2, pady=3)
+                command=lambda o=oid: self._sel_orbit(o)).pack(fill="x", padx=2, pady=3)
 
     def _sel_orbit(self, oid):
-        self.orbit = oid
-        self._go("main")
+        self.orbit=oid; self._go("main")
 
-    # ── 페이지: 메인 보석 ─────────────────────────────────────
     def _page_main(self):
-        self._back("orbit")
-        cfg = ORBIT_CFG[self.orbit]
-        card = self._card()
+        ctk.CTkButton(self.scroll, text="← 뒤로", width=72, height=28,
+            fg_color="transparent", hover_color=self.BORDER, text_color=self.MUTED,
+            command=lambda: self._go("orbit")).pack(anchor="w", padx=4, pady=(2,0))
+        cfg=ORBIT_CFG[self.orbit]
+        card=self._card()
         self._sec(card, f"{cfg['name']} — 메인 보석 (짝수 슬롯)")
-        row = ctk.CTkFrame(card, fg_color="transparent")
+        row=ctk.CTkFrame(card, fg_color="transparent")
         row.pack(padx=8, pady=(4,12))
         for g in cfg["gems"]:
             self._gem_btn(row, g, cmd=lambda gem=g: self._sel_main(gem))
 
     def _sel_main(self, gem):
-        self.main_gem = gem
-        self._go("sub")
+        self.main_gem=gem; self._go("sub")
 
-    # ── 페이지: 부 보석 ───────────────────────────────────────
     def _page_sub(self):
-        self._back("main")
-        cfg = ORBIT_CFG[self.orbit]
-        card = self._card()
+        ctk.CTkButton(self.scroll, text="← 뒤로", width=72, height=28,
+            fg_color="transparent", hover_color=self.BORDER, text_color=self.MUTED,
+            command=lambda: self._go("main")).pack(anchor="w", padx=4, pady=(2,0))
+        cfg=ORBIT_CFG[self.orbit]
+        card=self._card()
         self._lbl(card, f"메인 보석: {self.main_gem}", size=12,
                   color=GEM_COLOR.get(self.main_gem,"#888")).pack(anchor="w", padx=12, pady=(10,2))
         self._sec(card, f"부 보석 선택 (홀수 슬롯, {self.main_gem} 제외)")
-        row = ctk.CTkFrame(card, fg_color="transparent")
+        row=ctk.CTkFrame(card, fg_color="transparent")
         row.pack(padx=8, pady=(4,12))
         for g in cfg["gems"]:
-            if g != self.main_gem:
+            if g!=self.main_gem:
                 self._gem_btn(row, g, cmd=lambda gem=g: self._sel_sub(gem))
         ctk.CTkButton(row, text="상관없음", width=88, height=38,
             fg_color="#1C2A4033", hover_color="#2A3A5555", text_color=self.MUTED,
@@ -314,197 +253,154 @@ class App(ctk.CTk):
             command=lambda: self._sel_sub("상관없음")).pack(side="left", padx=4, pady=4)
 
     def _sel_sub(self, gem):
-        self.sub_gem = gem
-        self.cur_slot = 1; self.sel_left = 10; self.ref_left = 5
-        self.slot_map = {}; self.opt_gems = ["","",""]; self.opt_counts = [1,1,1]
+        self.sub_gem=gem; self.cur_slot=1; self.sel_left=10; self.ref_left=5
+        self.slot_map={}; self.opt_gems=["","",""]; self.opt_counts=[1,1,1]
         self._go("paint")
 
-    # ── 페이지: Paint ─────────────────────────────────────────
     def _page_paint(self):
-        cfg     = ORBIT_CFG[self.orbit]
-        max_s   = cfg["slots"]
-        is_even = self.cur_slot % 2 == 0
-        ev_list = [s for s in range(1, max_s+1) if s%2==0]
-        main_cnt = sum(1 for s in ev_list if self.slot_map.get(s)==self.main_gem)
+        cfg=ORBIT_CFG[self.orbit]; max_s=cfg["slots"]
+        is_even=self.cur_slot%2==0
+        ev_list=[s for s in range(1,max_s+1) if s%2==0]
+        main_cnt=sum(1 for s in ev_list if self.slot_map.get(s)==self.main_gem)
 
-        # ── 상태 바 ──
-        sbar = self._card()
-        row  = ctk.CTkFrame(sbar, fg_color="transparent")
+        sbar=self._card()
+        row=ctk.CTkFrame(sbar, fg_color="transparent")
         row.pack(fill="x", padx=12, pady=10)
-        slot_txt   = f"슬롯 {self.cur_slot}  {'🎯 짝수' if is_even else '홀수'}" if self.cur_slot<=max_s else "✓ 전체 완료"
-        slot_color = "#33CC66" if is_even else "#FFB800"
-        self._lbl(row, slot_txt, size=15, color=slot_color, bold=True).pack(side="left")
+        slot_txt=f"슬롯 {self.cur_slot}  {'🎯 짝수' if is_even else '홀수'}" if self.cur_slot<=max_s else "✓ 전체 완료"
+        self._lbl(row, slot_txt, size=15, color="#33CC66" if is_even else "#FFB800", bold=True).pack(side="left")
         self._lbl(row, f"선택 {self.sel_left}회", size=12, color=self.GOLD).pack(side="right", padx=12)
         self._lbl(row, f"새로고침 {self.ref_left}/5", size=12,
                   color="#4499FF" if self.ref_left>0 else "#334").pack(side="right", padx=4)
 
-        # ── 슬롯 그리드 ──
-        gc = self._card()
+        gc=self._card()
         self._sec(gc, f"슬롯 현황  |  {self.main_gem} {main_cnt}/{len(ev_list)}")
         self._slot_grid(gc)
 
-        # ── 선택지 입력 (대기 중 아닐 때) ──
-        if self.pending_idx is None and self.cur_slot <= max_s:
+        if self.pending_idx is None and self.cur_slot<=max_s:
             self._build_opt_panel(cfg)
-
-        # ── 결과 대기 ──
         if self.pending_idx is not None:
             self._build_pending_panel()
 
     def _build_opt_panel(self, cfg):
-        oc = self._card()
+        oc=self._card()
         self._sec(oc, "선택지 입력")
-
-        self._opt_rate_lbls = []
-        self._opt_tag_lbls  = []
-        self._opt_gem_vars  = []
-        self._opt_cnt_vars  = []
+        self._opt_rate_lbls=[]; self._opt_tag_lbls=[]
+        self._opt_gem_vars=[]; self._opt_cnt_vars=[]
 
         for i in range(3):
-            row = ctk.CTkFrame(oc, fg_color="transparent")
+            row=ctk.CTkFrame(oc, fg_color="transparent")
             row.pack(fill="x", padx=10, pady=3)
             self._lbl(row, f"{i+1}.", size=12, color=self.MUTED).pack(side="left", padx=(0,6))
-
-            gv = ctk.StringVar(value=self.opt_gems[i] or "-- 보석 --")
-            gm = ctk.CTkOptionMenu(row, variable=gv,
-                values=["-- 보석 --"] + cfg["gems"] + ["랜덤"],
+            gv=ctk.StringVar(value=self.opt_gems[i] or "-- 보석 --")
+            ctk.CTkOptionMenu(row, variable=gv,
+                values=["-- 보석 --"]+cfg["gems"]+["랜덤"],
                 width=120, height=30, fg_color="#0A1020",
                 button_color=self.BORDER, button_hover_color="#2A3A55",
                 dropdown_fg_color="#0D1525",
-                command=lambda v,idx=i: self._gem_changed(idx))
-            gm.pack(side="left", padx=4)
+                command=lambda v,idx=i: self._gem_changed(idx)).pack(side="left", padx=4)
             self._opt_gem_vars.append(gv)
-
-            cv = ctk.StringVar(value=str(self.opt_counts[i]))
-            cm = ctk.CTkOptionMenu(row, variable=cv,
-                values=["1","2","3","4","5","6"],
+            cv=ctk.StringVar(value=str(self.opt_counts[i]))
+            ctk.CTkOptionMenu(row, variable=cv, values=["1","2","3","4","5","6"],
                 width=68, height=30, fg_color="#0A1020",
                 button_color=self.BORDER, button_hover_color="#2A3A55",
                 dropdown_fg_color="#0D1525",
-                command=lambda v,idx=i: self._cnt_changed(idx))
-            cm.pack(side="left", padx=4)
+                command=lambda v,idx=i: self._cnt_changed(idx)).pack(side="left", padx=4)
             self._opt_cnt_vars.append(cv)
-
-            rl = self._lbl(row, "", size=11, color=self.GOLD)
-            rl.pack(side="left", padx=6)
-            tl = self._lbl(row, "", size=11, color="#888")
-            tl.pack(side="left", padx=2)
-            self._opt_rate_lbls.append(rl)
-            self._opt_tag_lbls.append(tl)
+            rl=self._lbl(row,"",size=11,color=self.GOLD); rl.pack(side="left",padx=6)
+            tl=self._lbl(row,"",size=11,color="#888"); tl.pack(side="left",padx=2)
+            self._opt_rate_lbls.append(rl); self._opt_tag_lbls.append(tl)
 
         self._refresh_opt_labels(cfg)
-
-        # ── 버튼 행 ──
-        br = ctk.CTkFrame(oc, fg_color="transparent")
+        br=ctk.CTkFrame(oc, fg_color="transparent")
         br.pack(fill="x", padx=10, pady=(10,12))
-
         ctk.CTkButton(br, text="🔍 분석", width=80, height=34,
             fg_color=self.GOLD+"33", hover_color=self.GOLD+"55", text_color=self.GOLD,
-            border_width=1, border_color=self.GOLD,
-            command=self._analyze).pack(side="left", padx=4)
-
-        if self.ref_left > 0:
+            border_width=1, border_color=self.GOLD, command=self._analyze).pack(side="left", padx=4)
+        if self.ref_left>0:
             ctk.CTkButton(br, text=f"🔄 새로고침 ({self.ref_left})", height=34,
                 fg_color="#4499FF22", hover_color="#4499FF44", text_color="#4499FF",
                 border_width=1, border_color="#4499FF",
                 command=self._do_refresh).pack(side="left", padx=4)
-
         ctk.CTkButton(br, text="→ 리버스 단계", height=34,
             fg_color=self.BORDER, hover_color="#2A3A55", text_color=self.MUTED,
             command=lambda: self._go("reverse")).pack(side="right", padx=4)
-
-        # ── 추천 결과 ──
         if self.rec:
             self._build_rec_panel()
 
     def _refresh_opt_labels(self, cfg):
         for i in range(3):
-            gem   = self.opt_gems[i]
-            count = self.opt_counts[i]
+            gem=self.opt_gems[i]; count=self.opt_counts[i]
             if gem:
-                r = get_rate(gem, count)
+                r=get_rate(gem,count)
                 self._opt_rate_lbls[i].configure(text=f"{r*100:.0f}%")
-                a = score_option(gem, count, self.cur_slot, cfg["slots"],
-                                 self.main_gem, self.sub_gem or "상관없음", cfg["gemCount"])
-                self.analyses[i] = a
+                a=score_option(gem,count,self.cur_slot,cfg["slots"],
+                               self.main_gem,self.sub_gem or "상관없음",cfg["gemCount"])
+                self.analyses[i]=a
                 if a:
-                    self._opt_tag_lbls[i].configure(
-                        text=TAG_LABEL.get(a["tag"],""),
-                        text_color=TAG_COLOR.get(a["tag"],"#888"))
+                    self._opt_tag_lbls[i].configure(text=TAG_LABEL.get(a["tag"],""),
+                                                     text_color=TAG_COLOR.get(a["tag"],"#888"))
                 else:
                     self._opt_tag_lbls[i].configure(text="")
             else:
                 self._opt_rate_lbls[i].configure(text="")
                 self._opt_tag_lbls[i].configure(text="")
-                self.analyses[i] = None
+                self.analyses[i]=None
 
     def _gem_changed(self, idx):
-        v = self._opt_gem_vars[idx].get()
-        self.opt_gems[idx] = "" if v == "-- 보석 --" else v
-        self.rec = None
-        self._refresh_opt_labels(ORBIT_CFG[self.orbit])
+        v=self._opt_gem_vars[idx].get()
+        self.opt_gems[idx]="" if v=="-- 보석 --" else v
+        self.rec=None; self._refresh_opt_labels(ORBIT_CFG[self.orbit])
 
     def _cnt_changed(self, idx):
-        self.opt_counts[idx] = int(self._opt_cnt_vars[idx].get())
-        self.rec = None
-        self._refresh_opt_labels(ORBIT_CFG[self.orbit])
+        self.opt_counts[idx]=int(self._opt_cnt_vars[idx].get())
+        self.rec=None; self._refresh_opt_labels(ORBIT_CFG[self.orbit])
 
     def _analyze(self):
-        cfg = ORBIT_CFG[self.orbit]
-        self.analyses = [
-            score_option(self.opt_gems[i], self.opt_counts[i], self.cur_slot,
-                         cfg["slots"], self.main_gem, self.sub_gem or "상관없음", cfg["gemCount"])
-            if self.opt_gems[i] else None
-            for i in range(3)
-        ]
-        self.rec = get_recommendation(self.analyses, self.cur_slot, self.ref_left,
-                                      self.cur_slot % 2 == 0, cfg["mainProb"])
+        cfg=ORBIT_CFG[self.orbit]
+        self.analyses=[
+            score_option(self.opt_gems[i],self.opt_counts[i],self.cur_slot,
+                         cfg["slots"],self.main_gem,self.sub_gem or "상관없음",cfg["gemCount"])
+            if self.opt_gems[i] else None for i in range(3)]
+        self.rec=get_recommendation(self.analyses,self.cur_slot,self.ref_left,
+                                    self.cur_slot%2==0,cfg["mainProb"])
         self._render()
 
     def _build_rec_panel(self):
-        r = self.rec
-        type_map = {"refresh": ("#FFB800","🔄 새로고침 권장!"),
-                    "pick":    ("#33CC66", f"✅ 옵션 {r['idx']+1} 선택!"),
-                    "warn":    ("#FF8800","⚠️ 주의")}
-        color, title = type_map.get(r["type"], ("#888",""))
-
-        rc = ctk.CTkFrame(self.scroll, fg_color=color+"11", corner_radius=10,
-                          border_width=1, border_color=color)
+        r=self.rec
+        type_map={"refresh":("#FFB800","🔄 새로고침 권장!"),
+                  "pick":   ("#33CC66",f"✅ 옵션 {r['idx']+1} 선택!"),
+                  "warn":   ("#FF8800","⚠️ 주의")}
+        color, title = type_map.get(r["type"],("#888",""))
+        rc=ctk.CTkFrame(self.scroll, fg_color=color+"11", corner_radius=10,
+                        border_width=1, border_color=color)
         rc.pack(fill="x", padx=2, pady=4)
         self._lbl(rc, title, size=13, color=color, bold=True).pack(anchor="w", padx=12, pady=(10,2))
         self._lbl(rc, r["msg"], size=11, color="#A0AABB").pack(anchor="w", padx=12, pady=(0,8))
-
-        br = ctk.CTkFrame(rc, fg_color="transparent")
+        br=ctk.CTkFrame(rc, fg_color="transparent")
         br.pack(anchor="w", padx=12, pady=(0,12))
-
-        if r["type"] == "pick" and r["idx"] is not None:
+        if r["type"]=="pick" and r["idx"] is not None:
             ctk.CTkButton(br, text=f"옵션 {r['idx']+1} 선택", height=32,
                 fg_color=color+"33", hover_color=color+"55", text_color=color,
                 border_width=1, border_color=color,
                 command=lambda: self._pick(r["idx"])).pack(side="left", padx=4)
-
-        if r["type"] == "refresh" and self.ref_left > 0:
+        if r["type"]=="refresh" and self.ref_left>0:
             ctk.CTkButton(br, text="새로고침", height=32,
                 fg_color="#4499FF22", hover_color="#4499FF44", text_color="#4499FF",
                 border_width=1, border_color="#4499FF",
                 command=self._do_refresh).pack(side="left", padx=4)
-
-        # 수동 선택 버튼
         for i in range(3):
-            if self.opt_gems[i] and i != r.get("idx"):
+            if self.opt_gems[i] and i!=r.get("idx"):
                 ctk.CTkButton(br, text=f"옵션 {i+1}", width=72, height=32,
                     fg_color=self.BORDER, hover_color="#2A3A55", text_color=self.MUTED,
                     command=lambda idx=i: self._pick(idx)).pack(side="left", padx=4)
 
     def _build_pending_panel(self):
-        g  = self.opt_gems[self.pending_idx]
-        c  = self.opt_counts[self.pending_idx]
-        r  = get_rate(g, c)
-        pc = self._card()
+        g=self.opt_gems[self.pending_idx]; c=self.opt_counts[self.pending_idx]
+        r=get_rate(g,c)
+        pc=self._card()
         self._lbl(pc, f"옵션 {self.pending_idx+1}  ({g}  {c}개  ·  {r*100:.0f}%)  결과는?",
                   size=13, color=self.GOLD).pack(padx=12, pady=(12,8))
-        br = ctk.CTkFrame(pc, fg_color="transparent")
-        br.pack(padx=12, pady=(0,12))
+        br=ctk.CTkFrame(pc, fg_color="transparent"); br.pack(padx=12, pady=(0,12))
         ctk.CTkButton(br, text="✅ 성공!", width=110, height=38,
             fg_color="#33CC6633", hover_color="#33CC6655", text_color="#33CC66",
             border_width=1, border_color="#33CC66",
@@ -515,179 +411,116 @@ class App(ctk.CTk):
             command=lambda: self._result(False)).pack(side="left", padx=6)
 
     def _pick(self, idx):
-        self.pending_idx = idx
-        self._render()
+        self.pending_idx=idx; self._render()
 
     def _result(self, ok):
-        cfg   = ORBIT_CFG[self.orbit]
-        gem   = self.opt_gems[self.pending_idx]
-        count = self.opt_counts[self.pending_idx]
-        self.sel_left -= 1
+        cfg=ORBIT_CFG[self.orbit]
+        gem=self.opt_gems[self.pending_idx]; count=self.opt_counts[self.pending_idx]
+        self.sel_left-=1
         if ok:
-            end = min(self.cur_slot + count - 1, cfg["slots"])
-            for s in range(self.cur_slot, end + 1):
-                self.slot_map[s] = gem if gem != "랜덤" else "?"
-            self.cur_slot = end + 1
-            if self.cur_slot > cfg["slots"] or self.sel_left == 0:
-                self._reset_opts()
-                self._go("reverse")
-                return
-        self._reset_opts()
-        self._render()
+            end=min(self.cur_slot+count-1, cfg["slots"])
+            for s in range(self.cur_slot, end+1):
+                self.slot_map[s]=gem if gem!="랜덤" else "?"
+            self.cur_slot=end+1
+            if self.cur_slot>cfg["slots"] or self.sel_left==0:
+                self._reset_opts(); self._go("reverse"); return
+        self._reset_opts(); self._render()
 
     def _reset_opts(self):
-        self.opt_gems    = ["","",""]
-        self.opt_counts  = [1,1,1]
-        self.pending_idx = None
-        self.rec         = None
-        self.analyses    = [None,None,None]
+        self.opt_gems=["","",""]; self.opt_counts=[1,1,1]
+        self.pending_idx=None; self.rec=None; self.analyses=[None,None,None]
 
     def _do_refresh(self):
-        self.ref_left -= 1
-        self._reset_opts()
-        self._render()
+        self.ref_left-=1; self._reset_opts(); self._render()
 
-    # ── 페이지: Reverse Change ────────────────────────────────
     def _page_reverse(self):
-        cfg      = ORBIT_CFG[self.orbit]
-        max_s    = cfg["slots"]
-        ev_list  = [s for s in range(1, max_s+1) if s%2==0]
-        main_cnt = sum(1 for s in ev_list if self.slot_map.get(s)==self.main_gem)
-        need_fix = [s for s in ev_list if self.slot_map.get(s) != self.main_gem]
+        cfg=ORBIT_CFG[self.orbit]; max_s=cfg["slots"]
+        ev_list=[s for s in range(1,max_s+1) if s%2==0]
+        main_cnt=sum(1 for s in ev_list if self.slot_map.get(s)==self.main_gem)
+        need_fix=[s for s in ev_list if self.slot_map.get(s)!=self.main_gem]
 
-        hc = self._card()
+        hc=self._card()
         self._lbl(hc, f"{cfg['name']}  —  리버스 체인지", size=15, color=self.GOLD, bold=True
                   ).pack(anchor="w", padx=12, pady=(12,4))
         self._lbl(hc, f"메인({self.main_gem}) 짝수 슬롯: {main_cnt}/{len(ev_list)}",
                   size=12, color="#33CC66" if main_cnt==len(ev_list) else "#FFB800"
                   ).pack(anchor="w", padx=12, pady=(0,10))
 
-        gc = self._card()
-        self._sec(gc, "현재 슬롯 현황")
-        self._slot_grid(gc)
+        gc=self._card()
+        self._sec(gc, "현재 슬롯 현황"); self._slot_grid(gc)
 
-        if main_cnt == len(ev_list):
-            done_card = self._card()
-            self._lbl(done_card, "🎉 모든 짝수 슬롯에 메인 보석! 완료를 눌러주세요!",
-                      size=13, color="#33CC66").pack(padx=12, pady=12)
+        if main_cnt==len(ev_list):
+            done_card=self._card()
+            self._lbl(done_card,"🎉 모든 짝수 슬롯에 메인 보석! 완료를 눌러주세요!",
+                      size=13,color="#33CC66").pack(padx=12,pady=12)
         else:
-            tc = self._card()
+            tc=self._card()
             self._sec(tc, f"개선 필요: {', '.join(map(str,need_fix))}번 슬롯")
             for s in need_fix:
-                lg = self.slot_map.get(s-1)
-                rg = self.slot_map.get(s+1)
-                tips = []
-                if lg == self.main_gem: tips.append(f"{s}번 왼쪽 교체 → {s-1}번({self.main_gem}) → {s}번")
-                if rg == self.main_gem: tips.append(f"{s}번 오른쪽 교체 → {s+1}번({self.main_gem}) → {s}번")
-                tip = " 또는 ".join(tips) if tips else "인접 슬롯에 메인 보석 없음 — 교체 효과 없음"
-                self._lbl(tc, f"  슬롯 {s}번: {tip}", size=11, color="#A0AABB").pack(anchor="w", padx=12, pady=2)
-            ctk.CTkLabel(tc, text="").pack(pady=2)
+                lg=self.slot_map.get(s-1); rg=self.slot_map.get(s+1)
+                tips=[]
+                if lg==self.main_gem: tips.append(f"{s}번 왼쪽 교체 → {s-1}번({self.main_gem})→{s}번")
+                if rg==self.main_gem: tips.append(f"{s}번 오른쪽 교체 → {s+1}번({self.main_gem})→{s}번")
+                tip=" 또는 ".join(tips) if tips else "인접 슬롯에 메인 보석 없음"
+                self._lbl(tc,f"  슬롯 {s}번: {tip}",size=11,color="#A0AABB"
+                          ).pack(anchor="w",padx=12,pady=2)
+            ctk.CTkLabel(tc,text="").pack(pady=2)
 
-        gd = self._card()
-        self._sec(gd, "선택 판단 기준")
-        rows = [
+        gd=self._card(); self._sec(gd,"선택 판단 기준")
+        for icon,color,text in [
             ("✅","#33CC66","방향 교체: 비메인 짝수 옆 홀수에 메인 보석이 있을 때"),
             ("✅","#33CC66","특정 슬롯 쌍 교체: 메인↔비메인 위치 바꿀 때"),
             ("⚠️","#FFB800","좌우 랜덤 재부여: 메인 짝수 슬롯도 바뀔 수 있음"),
             ("❌","#FF5555","모두 재부여 / 위치 랜덤 변경 / 다시 시작  — 절대 금지"),
-        ]
-        for icon, color, text in rows:
-            r = ctk.CTkFrame(gd, fg_color="transparent")
-            r.pack(fill="x", padx=8, pady=2)
-            self._lbl(r, icon, size=12, color=color).pack(side="left", padx=(4,8))
-            self._lbl(r, text, size=11, color="#A0AABB").pack(side="left")
-        ctk.CTkLabel(gd, text="").pack(pady=2)
+        ]:
+            r=ctk.CTkFrame(gd,fg_color="transparent"); r.pack(fill="x",padx=8,pady=2)
+            self._lbl(r,icon,size=12,color=color).pack(side="left",padx=(4,8))
+            self._lbl(r,text,size=11,color="#A0AABB").pack(side="left")
+        ctk.CTkLabel(gd,text="").pack(pady=2)
 
-        br = ctk.CTkFrame(self.scroll, fg_color="transparent")
-        br.pack(fill="x", padx=4, pady=8)
-        ctk.CTkButton(br, text="← Paint 단계로", height=38,
-            fg_color=self.BORDER, hover_color="#2A3A55", text_color=self.MUTED,
-            command=lambda: self._go("paint")).pack(side="left", padx=4)
-        ctk.CTkButton(br, text="완료! ✓", width=110, height=38,
-            fg_color=self.GOLD+"33", hover_color=self.GOLD+"55", text_color=self.GOLD,
-            border_width=1, border_color=self.GOLD,
-            command=lambda: self._go("done")).pack(side="right", padx=4)
+        br=ctk.CTkFrame(self.scroll,fg_color="transparent"); br.pack(fill="x",padx=4,pady=8)
+        ctk.CTkButton(br,text="← Paint 단계로",height=38,
+            fg_color=self.BORDER,hover_color="#2A3A55",text_color=self.MUTED,
+            command=lambda: self._go("paint")).pack(side="left",padx=4)
+        ctk.CTkButton(br,text="완료! ✓",width=110,height=38,
+            fg_color=self.GOLD+"33",hover_color=self.GOLD+"55",text_color=self.GOLD,
+            border_width=1,border_color=self.GOLD,
+            command=lambda: self._go("done")).pack(side="right",padx=4)
 
-    # ── 페이지: 완료 ──────────────────────────────────────────
     def _page_done(self):
-        cfg      = ORBIT_CFG[self.orbit]
-        ev_list  = [s for s in range(1, cfg["slots"]+1) if s%2==0]
-        main_cnt = sum(1 for s in ev_list if self.slot_map.get(s)==self.main_gem)
-        pct      = int(main_cnt / len(ev_list) * 100) if ev_list else 0
-        icon     = "🎊" if pct==100 else ("🎉" if pct>=75 else "👍")
+        cfg=ORBIT_CFG[self.orbit]
+        ev_list=[s for s in range(1,cfg["slots"]+1) if s%2==0]
+        main_cnt=sum(1 for s in ev_list if self.slot_map.get(s)==self.main_gem)
+        pct=int(main_cnt/len(ev_list)*100) if ev_list else 0
+        icon="🎊" if pct==100 else ("🎉" if pct>=75 else "👍")
 
-        dc = self._card()
-        self._lbl(dc, icon,   size=48).pack(pady=(18,8))
-        self._lbl(dc, "완료!", size=22, color=self.GOLD, bold=True).pack()
-        self._lbl(dc, f"{cfg['name']}  —  {self.main_gem} {main_cnt}/{len(ev_list)}",
-                  size=14).pack(pady=6)
-        self._lbl(dc, f"짝수 슬롯 달성률 {pct}%", size=12, color=self.MUTED).pack(pady=(0,16))
-
-        gc = self._card()
-        self._slot_grid(gc)
-
-        ctk.CTkButton(self.scroll, text="처음부터 다시", height=42, width=170,
-            fg_color=self.GOLD+"33", hover_color=self.GOLD+"55", text_color=self.GOLD,
-            border_width=1, border_color=self.GOLD,
-            command=self._restart).pack(pady=14)
+        dc=self._card()
+        self._lbl(dc,icon,size=48).pack(pady=(18,8))
+        self._lbl(dc,"완료!",size=22,color=self.GOLD,bold=True).pack()
+        self._lbl(dc,f"{cfg['name']}  —  {self.main_gem} {main_cnt}/{len(ev_list)}",size=14).pack(pady=6)
+        self._lbl(dc,f"짝수 슬롯 달성률 {pct}%",size=12,color=self.MUTED).pack(pady=(0,16))
+        gc=self._card(); self._slot_grid(gc)
+        ctk.CTkButton(self.scroll,text="처음부터 다시",height=42,width=170,
+            fg_color=self.GOLD+"33",hover_color=self.GOLD+"55",text_color=self.GOLD,
+            border_width=1,border_color=self.GOLD,command=self._restart).pack(pady=14)
 
     def _restart(self):
-        self._init_state()
-        self._render()
+        self._init_state(); self._render()
 
-    # ── 설정 ──────────────────────────────────────────────────
-    def _on_settings(self):
-        w = ctk.CTkToplevel(self)
-        w.title("설정")
-        w.geometry("520x320")
-        w.configure(fg_color="#0D1525")
-        w.grab_set()
-
-        ctk.CTkLabel(w, text="GitHub Raw URL  (업데이트 파일 주소)",
-                     font=ctk.CTkFont(size=12), text_color=self.MUTED
-                     ).pack(anchor="w", padx=16, pady=(18,4))
-        e = ctk.CTkEntry(w, width=480, height=36, fg_color="#0A1020",
-                         border_color=self.BORDER, text_color=self.TEXT,
-                         placeholder_text="https://raw.githubusercontent.com/유저명/레포/main/orbital_advisor.py")
-        e.pack(padx=16, pady=4)
-        if self.cfg_data.get("update_url"):
-            e.insert(0, self.cfg_data["update_url"])
-
-        ctk.CTkLabel(w, text="예) https://raw.githubusercontent.com/hong/my-repo/main/orbital_advisor.py",
-                     font=ctk.CTkFont(size=10), text_color="#2A3A55").pack(anchor="w", padx=16, pady=2)
-
-        def save():
-            self.cfg_data["update_url"] = e.get().strip()
-            save_config(self.cfg_data)
-            w.destroy()
-            messagebox.showinfo("저장", "URL이 저장되었습니다!")
-
-        ctk.CTkButton(w, text="저장", height=36, width=100,
-            fg_color=self.GOLD+"33", hover_color=self.GOLD+"55", text_color=self.GOLD,
-            border_width=1, border_color=self.GOLD, command=save).pack(pady=14)
-
-    # ── 업데이트 ──────────────────────────────────────────────
     def _on_update(self):
-        url = self.cfg_data.get("update_url","").strip()
-        if not url:
-            messagebox.showwarning("URL 없음", "설정에서 GitHub Raw URL을 먼저 입력해주세요!")
-            self._on_settings()
-            return
         self._upd_btn.configure(text="확인 중...", state="disabled")
-        fetch_update(url, lambda s,d,v: self.after(0, lambda: self._update_done(s,d,v)))
+        fetch_update(lambda s,d,v: self.after(0, lambda: self._update_done(s,d,v)))
 
     def _update_done(self, status, data, new_ver):
         self._upd_btn.configure(text="🔄 업데이트", state="normal")
-        if status == "err":
-            messagebox.showerror("오류", f"업데이트 확인 실패:\n{data}")
-            return
-        if new_ver == VERSION:
+        if status=="err":
+            messagebox.showerror("오류", f"업데이트 확인 실패:\n{data}"); return
+        if new_ver==VERSION:
             messagebox.showinfo("최신 버전", f"이미 최신 버전이에요! (v{VERSION})")
         else:
             if messagebox.askyesno("업데이트 발견",
-                    f"새 버전 발견: v{new_ver}  (현재 v{VERSION})\n업데이트할까요?\n(앱이 재시작됩니다)"):
+                    f"새 버전: v{new_ver}  (현재 v{VERSION})\n업데이트할까요?\n(앱이 재시작됩니다)"):
                 apply_update(data)
-
 
 if __name__ == "__main__":
     app = App()
