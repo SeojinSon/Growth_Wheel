@@ -4,7 +4,7 @@ VERSION = "1.0.1"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL — 여기에 GitHub Raw URL 입력하세요
-UPDATE_URL = "https://raw.githubusercontent.com/SeojinSon/Growth_Wheel/main/orbital_advisor.py"
+UPDATE_URL = "https://raw.githubusercontent.com/SeojinSon/Growth_Wheel/refs/heads/main/orbital_advisor.py"
 # ════════════════════════════════════════════════════
 
 import subprocess, sys
