@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.2.8"
+VERSION = "1.3.0"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -144,7 +144,73 @@ def try_ocr(img):
             continue
     return best
 
-def parse_ocr_text(text):
+def detect_slots_from_image(img, slot_count):
+    """캡처 이미지에서 슬롯의 보석 색상을 감지"""
+    GEM_RGB = {
+        "루비":    (255, 85, 85),
+        "토파즈":  (255, 184, 0),
+        "에메랄드":(51, 204, 102),
+        "사파이어":(68, 153, 255),
+        "자수정":  (170, 102, 255),
+    }
+
+    def closest_gem(r, g, b):
+        best, best_d = None, 80
+        for gem, (gr, gg, gb) in GEM_RGB.items():
+            d = ((r-gr)**2 + (g-gg)**2 + (b-gb)**2) ** 0.5
+            if d < best_d:
+                best_d = d; best = gem
+        return best
+
+    img_rgb = img.convert("RGB")
+    w, h = img_rgb.size
+
+    # 보석 픽셀이 가장 많은 y 줄 찾기
+    best_y, best_cnt = h//2, 0
+    for y in range(h//5, 4*h//5, 4):
+        cnt = sum(1 for x in range(0, w, 4)
+                  if closest_gem(*img_rgb.getpixel((x, y))))
+        if cnt > best_cnt:
+            best_cnt, best_y = cnt, y
+
+    if best_cnt < 2:
+        return {}
+
+    # best_y 근처 밴드에서 x별 보석 감지
+    y1, y2 = max(0, best_y-15), min(h, best_y+15)
+    x_gem_map = {}
+    for x in range(0, w, 2):
+        votes = {}
+        for y in range(y1, y2, 2):
+            g = closest_gem(*img_rgb.getpixel((x, y)))
+            if g: votes[g] = votes.get(g, 0) + 1
+        if votes:
+            top = max(votes, key=votes.get)
+            if votes[top] >= 2:
+                x_gem_map[x] = top
+
+    if not x_gem_map:
+        return {}
+
+    # 연속된 x를 클러스터로 묶기
+    xs = sorted(x_gem_map.keys())
+    clusters, cxs, cg = [], [xs[0]], x_gem_map[xs[0]]
+    for x in xs[1:]:
+        if x - cxs[-1] <= 8 and x_gem_map[x] == cg:
+            cxs.append(x)
+        else:
+            if len(cxs) >= 3:
+                clusters.append((sum(cxs)//len(cxs), cg))
+            cxs, cg = [x], x_gem_map[x]
+    if len(cxs) >= 3:
+        clusters.append((sum(cxs)//len(cxs), cg))
+
+    clusters.sort(key=lambda c: c[0])
+
+    slot_map = {}
+    for i, (_, gem) in enumerate(clusters[:slot_count]):
+        slot_map[i+1] = gem
+    return slot_map
     results = []
     lines = [l.strip() for l in text.replace('\n\n','\n').split('\n') if l.strip()]
     for line in lines:
@@ -450,20 +516,16 @@ class App(ctk.CTk):
 
     def _gem_changed(self, idx):
         v=self._opt_gem_vars[idx].get(); self.opt_gems[idx]="" if v=="-- 보석 --" else v
-        self.rec=None; self._refresh_opt_labels(ORBIT_CFG[self.orbit])
+        self._refresh_opt_labels(ORBIT_CFG[self.orbit])
+        if any(self.opt_gems): self._auto_analyze()
 
     def _cnt_changed(self, idx):
         self.opt_counts[idx]=int(self._opt_cnt_vars[idx].get())
-        self.rec=None; self._refresh_opt_labels(ORBIT_CFG[self.orbit])
+        self._refresh_opt_labels(ORBIT_CFG[self.orbit])
+        if any(self.opt_gems): self._auto_analyze()
 
     def _analyze(self):
-        cfg=ORBIT_CFG[self.orbit]
-        self.analyses=[score_option(self.opt_gems[i],self.opt_counts[i],self.cur_slot,
-            cfg["slots"],self.main_gem,self.sub_gem or "상관없음",cfg["gemCount"])
-            if self.opt_gems[i] else None for i in range(3)]
-        self.rec=get_recommendation(self.analyses,self.cur_slot,self.ref_left,
-                                    self.cur_slot%2==0,cfg["mainProb"])
-        self._render()
+        self._auto_analyze()
 
     def _build_rec_panel(self):
         r = self.rec
@@ -602,18 +664,35 @@ class App(ctk.CTk):
 
     def _run_ocr(self, x1, y1, x2, y2):
         try:
-            img = ImageGrab.grab(bbox=(x1,y1,x2,y2))
+            img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
+            cfg = ORBIT_CFG[self.orbit]
+
+            # 1. 옵션 OCR
             results = try_ocr(img)
 
-            # 디버그 창
-            self._show_debug(img, results)
+            # 2. 슬롯 색상 감지
+            detected_slots = detect_slots_from_image(img, cfg["slots"])
+            if detected_slots:
+                self.slot_map = detected_slots
+                # cur_slot = 첫 번째 빈 슬롯
+                for s in range(1, cfg["slots"]+1):
+                    if s not in self.slot_map:
+                        self.cur_slot = s
+                        break
+                else:
+                    self.cur_slot = cfg["slots"] + 1
+
+            # 3. 디버그 창
+            self._show_debug(img, results, detected_slots)
 
             if not results:
+                self._render()
                 return
-            for i, (gem, count) in enumerate(results[:3]):
-                self.opt_gems[i]=gem; self.opt_counts[i]=count
 
-            # OCR 후 자동 분석
+            for i, (gem, count) in enumerate(results[:3]):
+                self.opt_gems[i] = gem
+                self.opt_counts[i] = count
+
             self._auto_analyze()
         except Exception as e:
             messagebox.showerror("OCR 오류", f"오류가 발생했어요:\n{str(e)}")
@@ -629,7 +708,10 @@ class App(ctk.CTk):
                                       self.cur_slot % 2 == 0, cfg["mainProb"])
         self._render()
 
-    def _show_debug(self, img, results):
+    def _analyze(self):
+        self._auto_analyze()
+
+    def _show_debug(self, img, results, detected_slots=None):
         """캡처 이미지와 OCR 결과를 보여주는 디버그 창"""
         import io, base64
         win = tk.Toplevel(self)
@@ -673,12 +755,18 @@ class App(ctk.CTk):
             text_box = tk.Text(win, height=8, bg="#070B14", fg="#D8DFF0",
                                font=("맑은 고딕", 10), wrap="word")
             text_box.pack(fill="x", padx=10, pady=4)
-            text_box.insert("end", f"[원본 OCR 텍스트]\n{raw_text}\n\n[인식된 결과]\n")
+            text_box.insert("end", f"[원본 OCR 텍스트]\n{raw_text}\n\n[인식된 옵션]\n")
             if results:
                 for g, c in results:
                     text_box.insert("end", f"  → {g} {c}개\n")
             else:
-                text_box.insert("end", "  인식 실패\n")
+                text_box.insert("end", "  옵션 인식 실패\n")
+            if detected_slots:
+                text_box.insert("end", f"\n[감지된 슬롯]\n")
+                for s, g in sorted(detected_slots.items()):
+                    text_box.insert("end", f"  슬롯 {s}: {g}\n")
+            else:
+                text_box.insert("end", "\n[슬롯 감지 실패]\n")
             text_box.configure(state="disabled")
         except Exception as e:
             tk.Label(win, text=str(e), fg="#FF5555", bg="#0D1525").pack()
