@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.2.3"
+VERSION = "1.2.4"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -66,7 +66,7 @@ GEM_ALIASES = {
     "에메랄드":["에메랄드","에메","에메랄","에머랄드"],
     "사파이어":["사파이어","사파","사피이어","사파이"],
     "자수정":  ["자수정","자수","자수졍"],
-    "랜덤":    ["랜덤","렌덤","랜","무작위","무작"],
+    "랜덤":    ["랜덤한","랜덤","렌덤","랜","무작위","무작"],
 }
 TAG_COLOR = {"BEST":"#33CC66","GOOD":"#88CC44","OK":"#FFB800","NEUTRAL":"#888888","RISKY":"#FF8800","BAD":"#FF5555"}
 TAG_LABEL = {"BEST":"최선 ✅✅","GOOD":"좋음 ✅","OK":"보통","NEUTRAL":"중립","RISKY":"위험 ⚠️","BAD":"나쁨 ❌"}
@@ -148,8 +148,10 @@ def parse_ocr_text(text):
     results = []
     lines = [l.strip() for l in text.replace('\n\n','\n').split('\n') if l.strip()]
     for line in lines:
-        count_m = re.search(r'(\d+)개', line)
-        gem = detect_gem(line)
+        # 글자 사이 공백 제거 (OCR이 "에 메 랄 드", "1 개" 처럼 읽는 문제 해결)
+        line_clean = re.sub(r'\s+', '', line)
+        count_m = re.search(r'(\d+)개', line_clean)
+        gem = detect_gem(line_clean)
         if gem and count_m:
             count = int(count_m.group(1))
             if 1 <= count <= 6:
