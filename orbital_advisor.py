@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.4.1"
+VERSION = "1.4.2"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -134,7 +134,7 @@ def detect_gem(text):
 
 def preprocess_img(img, invert=False):
     w, h = img.size
-    img = img.resize((w*2, h*2), Image.LANCZOS)
+    img = img.resize((int(w*1.5), int(h*1.5)), Image.LANCZOS)  # 2x→1.5x로 속도 개선
     img = img.convert("L")
     if invert:
         img = img.point(lambda x: 255 - x)
@@ -142,27 +142,31 @@ def preprocess_img(img, invert=False):
     return img
 
 def try_ocr(img):
-    """여러 방식으로 OCR 시도 후 가장 좋은 결과 반환"""
-    attempts = [
-        ("--psm 6", True),
-        ("--psm 4", True),
-        ("--psm 6", False),
-        ("--psm 4", False),
-        ("--psm 3", True),
+    """오른쪽 패널을 3등분해서 위→아래 순서로 OCR (순서 보장 + 속도 개선)"""
+    w, h = img.size
+    # 오른쪽 45% 크롭 (옵션 패널 영역)
+    panel = img.crop((int(w*0.55), int(h*0.05), w, int(h*0.95)))
+    pw, ph = panel.size
+    # 3등분
+    thirds = [
+        panel.crop((0, 0,        pw, ph//3)),
+        panel.crop((0, ph//3,    pw, 2*ph//3)),
+        panel.crop((0, 2*ph//3,  pw, ph)),
     ]
-    best = []
-    for config, invert in attempts:
-        try:
-            processed = preprocess_img(img, invert)
-            text = pytesseract.image_to_string(processed, lang="kor", config=config)
-            results = parse_ocr_text(text)
-            if len(results) > len(best):
-                best = results
-            if len(best) >= 3:
-                break
-        except Exception:
-            continue
-    return best
+    results = []
+    for strip in thirds:
+        text = pytesseract.image_to_string(
+            preprocess_img(strip, invert=True), lang="kor", config="--psm 6")
+        parsed = parse_ocr_text(text)
+        if parsed:
+            results.append(parsed[0])
+        else:
+            # 비반전도 시도
+            text2 = pytesseract.image_to_string(
+                preprocess_img(strip, invert=False), lang="kor", config="--psm 6")
+            parsed2 = parse_ocr_text(text2)
+            results.append(parsed2[0] if parsed2 else None)
+    return [r for r in results if r]
 
 def parse_game_state(text):
     """OCR 텍스트에서 새로고침/선택 횟수 파싱"""
@@ -797,15 +801,8 @@ class App(ctk.CTk):
             self.opt_counts = [1,1,1]
             self.rec        = None
 
-            # 1. 옵션 OCR — 전체 이미지 + 오른쪽 40% 크롭 모두 시도
+            # 1. 옵션 OCR (오른쪽 패널 3등분, 순서 보장)
             results = try_ocr(img)
-            if len(results) < 3:
-                w, h = img.size
-                right_crop = img.crop((int(w*0.55), int(h*0.05), w, int(h*0.95)))
-                right_results = try_ocr(right_crop)
-                # 더 많이 인식한 쪽 사용
-                if len(right_results) > len(results):
-                    results = right_results
 
             # 2. 새로고침/선택 횟수 파싱
             raw_text = pytesseract.image_to_string(
