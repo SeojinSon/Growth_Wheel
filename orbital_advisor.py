@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.4.2"
+VERSION = "1.4.3"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -142,31 +142,24 @@ def preprocess_img(img, invert=False):
     return img
 
 def try_ocr(img):
-    """오른쪽 패널을 3등분해서 위→아래 순서로 OCR (순서 보장 + 속도 개선)"""
+    """오른쪽 패널만 크롭해서 OCR — 텍스트 순서 = 화면 위→아래 순서"""
     w, h = img.size
-    # 오른쪽 45% 크롭 (옵션 패널 영역)
-    panel = img.crop((int(w*0.55), int(h*0.05), w, int(h*0.95)))
-    pw, ph = panel.size
-    # 3등분
-    thirds = [
-        panel.crop((0, 0,        pw, ph//3)),
-        panel.crop((0, ph//3,    pw, 2*ph//3)),
-        panel.crop((0, 2*ph//3,  pw, ph)),
-    ]
-    results = []
-    for strip in thirds:
-        text = pytesseract.image_to_string(
-            preprocess_img(strip, invert=True), lang="kor", config="--psm 6")
-        parsed = parse_ocr_text(text)
-        if parsed:
-            results.append(parsed[0])
-        else:
-            # 비반전도 시도
-            text2 = pytesseract.image_to_string(
-                preprocess_img(strip, invert=False), lang="kor", config="--psm 6")
-            parsed2 = parse_ocr_text(text2)
-            results.append(parsed2[0] if parsed2 else None)
-    return [r for r in results if r]
+    # 오른쪽 45% 패널만 크롭
+    panel = img.crop((int(w*0.55), int(h*0.03), w, int(h*0.97)))
+
+    best = []
+    for invert in (True, False):
+        try:
+            processed = preprocess_img(panel, invert)
+            text = pytesseract.image_to_string(processed, lang="kor", config="--psm 6")
+            results = parse_ocr_text(text)
+            if len(results) > len(best):
+                best = results
+            if len(best) >= 3:
+                break
+        except Exception:
+            continue
+    return best
 
 def parse_game_state(text):
     """OCR 텍스트에서 새로고침/선택 횟수 파싱"""
