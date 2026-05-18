@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -24,15 +24,15 @@ except ImportError:
     import customtkinter as ctk
 
 try:
-    import mss
-    MSS_OK = True
+    import win32gui, win32con
+    WIN32_OK = True
 except ImportError:
-    _install("mss")
+    _install("pywin32")
     try:
-        import mss
-        MSS_OK = True
+        import win32gui, win32con
+        WIN32_OK = True
     except:
-        MSS_OK = False
+        WIN32_OK = False
 
 try:
     import pytesseract
@@ -116,8 +116,11 @@ def preprocess_img(img):
     w, h = img.size
     img = img.resize((w*2, h*2), Image.LANCZOS)
     img = img.convert("L")
-    img = ImageEnhance.Contrast(img).enhance(2.5)
-    img = img.point(lambda x: 255 if x > 100 else 0)
+    # 어두운 배경이면 반전 (게임 UI는 밝은 글씨+어두운 배경)
+    avg = sum(img.getdata()) / (w*2 * h*2)
+    if avg < 128:
+        img = img.point(lambda x: 255 - x)
+    img = ImageEnhance.Contrast(img).enhance(2.0)
     return img
 
 def parse_ocr_text(text):
@@ -381,6 +384,11 @@ class App(ctk.CTk):
             border_width=1, border_color="#33CC66",
             command=self._start_capture).pack(side="left", padx=4)
 
+        ctk.CTkButton(br, text="🪟 창 선택", width=90, height=34,
+            fg_color="#1A2A3D", hover_color="#2A3A55", text_color="#4499FF",
+            border_width=1, border_color="#4499FF",
+            command=self._pick_window).pack(side="left", padx=4)
+
         watch_color = "#FF5555" if self.watching else "#AA66FF"
         watch_text  = "🔴 감지 중" if self.watching else "📡 자동 감지"
         watch_fg    = "#3A1515" if self.watching else "#1E0D3D"
@@ -573,6 +581,58 @@ class App(ctk.CTk):
         except Exception as e:
             messagebox.showerror("OCR 오류", f"오류가 발생했어요:\n{str(e)}")
 
+    def _pick_window(self):
+        """게임 창을 클릭해서 선택"""
+        self.withdraw()
+        self.after(300, self._show_window_picker)
+
+    def _show_window_picker(self):
+        overlay = tk.Toplevel()
+        overlay.attributes("-fullscreen", True)
+        overlay.attributes("-alpha", 0.4)
+        overlay.attributes("-topmost", True)
+        overlay.configure(bg="gray10")
+
+        tk.Label(overlay,
+            text="🪟  캡처할 게임 창을 클릭하세요  |  ESC: 취소",
+            fg="#4499FF", bg="gray10", font=("맑은 고딕", 14)
+        ).place(relx=0.5, rely=0.02, anchor="center")
+
+        canvas = tk.Canvas(overlay, cursor="crosshair", bg="gray10", highlightthickness=0)
+        canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+        def on_click(e):
+            overlay.destroy()
+            self.deiconify()
+            self.after(200, lambda: self._capture_window_at(e.x, e.y))
+
+        def on_esc(e):
+            overlay.destroy()
+            self.deiconify()
+
+        canvas.bind("<ButtonRelease-1>", on_click)
+        overlay.bind("<Escape>", on_esc)
+        overlay.focus_force()
+
+    def _capture_window_at(self, x, y):
+        """클릭한 위치의 창을 캡처"""
+        if not WIN32_OK:
+            messagebox.showerror("오류", "pywin32가 설치되지 않았어요.")
+            return
+        try:
+            hwnd = win32gui.WindowFromPoint((x, y))
+            hwnd = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
+            rect = win32gui.GetWindowRect(hwnd)
+            title = win32gui.GetWindowText(hwnd)
+            x1, y1, x2, y2 = rect
+            if x2-x1 < 10 or y2-y1 < 10:
+                messagebox.showwarning("창 감지 실패", "창을 감지하지 못했어요.")
+                return
+            # 창 전체 캡처 후 OCR
+            self._run_ocr(x1, y1, x2, y2)
+        except Exception as e:
+            messagebox.showerror("오류", str(e))
+
     def _toggle_watch(self):
         if self.watching:
             self._stop_watch()
@@ -585,7 +645,45 @@ class App(ctk.CTk):
 
     def _start_capture_for_watch(self):
         self.withdraw()
-        self.after(400, lambda: self._show_overlay(watch_mode=True))
+        self.after(400, lambda: self._show_window_picker_for_watch())
+
+    def _show_window_picker_for_watch(self):
+        overlay = tk.Toplevel()
+        overlay.attributes("-fullscreen", True)
+        overlay.attributes("-alpha", 0.4)
+        overlay.attributes("-topmost", True)
+        overlay.configure(bg="gray10")
+        tk.Label(overlay,
+            text="📡  자동 감지할 게임 창을 클릭하세요  |  ESC: 취소",
+            fg="#AA66FF", bg="gray10", font=("맑은 고딕", 14)
+        ).place(relx=0.5, rely=0.02, anchor="center")
+        canvas = tk.Canvas(overlay, cursor="crosshair", bg="gray10", highlightthickness=0)
+        canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+        def on_click(e):
+            overlay.destroy(); self.deiconify()
+            self.after(200, lambda: self._set_watch_window(e.x, e.y))
+
+        def on_esc(e):
+            overlay.destroy(); self.deiconify()
+
+        canvas.bind("<ButtonRelease-1>", on_click)
+        overlay.bind("<Escape>", on_esc)
+        overlay.focus_force()
+
+    def _set_watch_window(self, x, y):
+        if not WIN32_OK:
+            messagebox.showerror("오류", "pywin32가 설치되지 않았어요.")
+            return
+        try:
+            hwnd = win32gui.WindowFromPoint((x, y))
+            hwnd = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
+            rect = win32gui.GetWindowRect(hwnd)
+            x1, y1, x2, y2 = rect
+            if x2-x1 > 10 and y2-y1 > 10:
+                self._start_watch_with_region((x1, y1, x2, y2))
+        except Exception as e:
+            messagebox.showerror("오류", str(e))
 
     def _start_watch_with_region(self, region):
         self.watch_region = region
