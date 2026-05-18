@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.3.9"
+VERSION = "1.4.0"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -791,8 +791,15 @@ class App(ctk.CTk):
             self.opt_counts = [1,1,1]
             self.rec        = None
 
-            # 1. 옵션 OCR
+            # 1. 옵션 OCR — 전체 이미지 + 오른쪽 40% 크롭 모두 시도
             results = try_ocr(img)
+            if len(results) < 3:
+                w, h = img.size
+                right_crop = img.crop((int(w*0.55), int(h*0.05), w, int(h*0.95)))
+                right_results = try_ocr(right_crop)
+                # 더 많이 인식한 쪽 사용
+                if len(right_results) > len(results):
+                    results = right_results
 
             # 2. 새로고침/선택 횟수 파싱
             raw_text = pytesseract.image_to_string(
