@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.3.2"
+VERSION = "1.3.3"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -87,7 +87,9 @@ def score_option(gem, count, cur, max_s, main, sub, gem_cnt):
         return {"score":1,"verdict":"홀수만 채움 (OK)","tag":"OK","evs":evs,"odds":odds}
     if gem == "랜덤":
         p = 1/gem_cnt; score = sr*(len(evs)*10*p+len(odds)*p)
-        if evs: return {"score":score,"verdict":f"짝수포함 랜덤 — 메인 기대 {sr*len(evs)*p*100:.1f}%","tag":"RISKY","evs":evs,"odds":odds}
+        if evs:
+            score = score * 0.2  # 짝수 슬롯 랜덤 → 대폭 감점
+            return {"score":score,"verdict":f"짝수포함 랜덤 — 메인 기대 {sr*len(evs)*p*100:.1f}% (위험!)","tag":"RISKY","evs":evs,"odds":odds}
         return {"score":score,"verdict":"홀수만 랜덤 채움","tag":"OK","evs":evs,"odds":odds}
     if sub and sub != "상관없음" and gem == sub:
         if evs: return {"score":-5,"verdict":f"짝수 {'+'.join(map(str,evs))}번에 부보석 침범 ❌","tag":"BAD","evs":evs,"odds":odds}
@@ -99,10 +101,28 @@ def get_recommendation(analyses, cur, ref_left, is_even, main_prob):
     valid = [(i,a) for i,a in enumerate(analyses) if a]
     if not valid: return None
     best_i, best_a = max(valid, key=lambda x: x[1]["score"])
-    p_good = 1-(1-main_prob)**3; refresh_ev = p_good*(9 if is_even else 3)*0.7
-    if best_a["score"] <= 0 and ref_left > 0: return {"type":"refresh","msg":"좋은 옵션이 없어요. 새로고침!","idx":None}
-    if is_even and best_a["score"] < refresh_ev and ref_left > 0: return {"type":"refresh","msg":f"새로고침 기대값({refresh_ev:.1f}) > 현재 최선({best_a['score']:.1f}). 새로고침!","idx":None}
-    if best_a["score"] < 0: return {"type":"warn","msg":"모든 옵션이 짝수를 망칩니다. 새로고침이 없으면 덜 나쁜 것 선택.","idx":best_i}
+
+    # 모든 옵션이 RISKY/BAD → 새로고침 강력 권장
+    all_bad = all(a["tag"] in ("RISKY","BAD") for _,a in valid)
+    if all_bad and ref_left > 0:
+        return {"type":"refresh","msg":"모든 옵션이 위험하거나 나쁩니다. 새로고침하세요!","idx":None}
+
+    # 점수 0 이하 → 새로고침
+    if best_a["score"] <= 0 and ref_left > 0:
+        return {"type":"refresh","msg":"좋은 옵션이 없어요. 새로고침!","idx":None}
+
+    # RISKY/BAD 옵션은 새로고침 비교 시 70% 페널티
+    effective = best_a["score"] * (0.3 if best_a["tag"] in ("RISKY","BAD") else 1.0)
+    p_good    = 1-(1-main_prob)**3
+    refresh_ev = p_good*(9 if is_even else 3)*0.7
+
+    if is_even and effective < refresh_ev and ref_left > 0:
+        return {"type":"refresh","msg":f"새로고침이 더 기대값이 높아요. 새로고침!","idx":None}
+    if not is_even and effective < refresh_ev*0.5 and ref_left > 0:
+        return {"type":"refresh","msg":"홀수 슬롯이지만 옵션이 너무 위험해요. 새로고침!","idx":None}
+
+    if best_a["score"] < 0:
+        return {"type":"warn","msg":"모든 옵션이 짝수를 망칩니다. 새로고침이 없으면 덜 나쁜 것 선택.","idx":best_i}
     return {"type":"pick","msg":best_a["verdict"],"idx":best_i}
 
 # ── OCR 파싱 ──────────────────────────────────────────────────
