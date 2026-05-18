@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.2.4"
+VERSION = "1.2.5"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -692,21 +692,25 @@ class App(ctk.CTk):
         overlay.focus_force()
 
     def _capture_window_at(self, x, y):
-        """클릭한 위치의 창을 캡처"""
         if not WIN32_OK:
-            messagebox.showerror("오류", "pywin32가 설치되지 않았어요.")
+            messagebox.showerror("오류", "pywin32가 설치되지 않았어요.\ncmd에서 pip install pywin32 실행해주세요!")
             return
         try:
             hwnd = win32gui.WindowFromPoint((x, y))
             hwnd = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
             rect = win32gui.GetWindowRect(hwnd)
-            title = win32gui.GetWindowText(hwnd)
-            x1, y1, x2, y2 = rect
-            if x2-x1 < 10 or y2-y1 < 10:
+            wx1, wy1, wx2, wy2 = rect
+            if wx2-wx1 < 10 or wy2-wy1 < 10:
                 messagebox.showwarning("창 감지 실패", "창을 감지하지 못했어요.")
                 return
-            # 창 전체 캡처 후 OCR
-            self._run_ocr(x1, y1, x2, y2)
+            w = wx2 - wx1
+            h = wy2 - wy1
+            # 오른쪽 40%, 세로 상단 10% ~ 하단 90% 자동 크롭
+            cx1 = wx1 + int(w * 0.60)
+            cy1 = wy1 + int(h * 0.10)
+            cx2 = wx2
+            cy2 = wy1 + int(h * 0.90)
+            self._run_ocr(cx1, cy1, cx2, cy2)
         except Exception as e:
             messagebox.showerror("오류", str(e))
 
@@ -750,15 +754,17 @@ class App(ctk.CTk):
 
     def _set_watch_window(self, x, y):
         if not WIN32_OK:
-            messagebox.showerror("오류", "pywin32가 설치되지 않았어요.")
+            messagebox.showerror("오류", "pywin32가 설치되지 않았어요.\ncmd에서 pip install pywin32 실행해주세요!")
             return
         try:
             hwnd = win32gui.WindowFromPoint((x, y))
             hwnd = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
             rect = win32gui.GetWindowRect(hwnd)
-            x1, y1, x2, y2 = rect
-            if x2-x1 > 10 and y2-y1 > 10:
-                self._start_watch_with_region((x1, y1, x2, y2))
+            wx1, wy1, wx2, wy2 = rect
+            w = wx2 - wx1; h = wy2 - wy1
+            # 오른쪽 40%, 세로 10~90% 자동 크롭
+            region = (wx1+int(w*0.60), wy1+int(h*0.10), wx2, wy1+int(h*0.90))
+            self._start_watch_with_region(region)
         except Exception as e:
             messagebox.showerror("오류", str(e))
 
