@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.3.6"
+VERSION = "1.3.8"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -178,19 +178,20 @@ def parse_game_state(text):
         if m:
             ref_left = int(m.group(1))
 
-    # 남은 선택 횟수
+    # 남은 선택 횟수 — 여러 패턴 시도
     sel_left = None
-    m = re.search(r'남은선택횟수(\d+)', clean)
-    if m:
-        sel_left = int(m.group(1))
-    else:
-        m = re.search(r'선택횟수(\d+)', clean)
+    for pattern in [
+        r'남은선택횟수(\d+)',
+        r'선택횟수(\d+)',
+        r'남은.{0,6}선택.{0,6}(\d+)',
+        r'선택.{0,4}횟수.{0,4}(\d+)',
+        r'횟수.{0,4}(\d+)',
+    ]:
+        m = re.search(pattern, clean)
         if m:
-            sel_left = int(m.group(1))
-        else:
-            m = re.search(r'남은.{0,4}선택.{0,4}횟수.{0,4}(\d+)', clean)
-            if m:
-                sel_left = int(m.group(1))
+            v = int(m.group(1))
+            if 0 <= v <= 10:
+                sel_left = v; break
 
     return ref_left, sel_left
 
@@ -447,10 +448,58 @@ class App(ctk.CTk):
             txt=(gem[:2] if gem and gem!="?" else ("?" if gem else str(n)))
             sub_txt="✓" if ev and gem==self.main_gem else ""
             ctk.CTkButton(row, text=f"{txt}\n{sub_txt}", width=sz, height=sz,
-                fg_color=fg, hover_color=fg,
+                fg_color=fg, hover_color="#2A3A55",
                 text_color=gc if gem else ("#C9A84C" if cur else "#334455"),
                 border_width=bw, border_color=bd, corner_radius=sz//2,
-                font=ctk.CTkFont(size=12), state="disabled").pack(side="left", padx=2)
+                font=ctk.CTkFont(size=12),
+                command=lambda slot=n: self._click_slot(slot)).pack(side="left", padx=2)
+
+    def _click_slot(self, slot_num):
+        """슬롯 클릭 시 보석 선택 팝업"""
+        cfg = ORBIT_CFG[self.orbit]
+        popup = tk.Toplevel(self)
+        popup.title(f"슬롯 {slot_num} 보석 선택")
+        popup.configure(bg="#0D1525")
+        popup.grab_set()
+        popup.resizable(False, False)
+
+        ctk.CTkLabel(popup,
+            text=f"슬롯 {slot_num}  {'🎯 짝수' if slot_num%2==0 else '홀수'}",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#C9A84C").pack(padx=20, pady=(16,8))
+
+        # 보석 버튼들
+        frame = ctk.CTkFrame(popup, fg_color="transparent")
+        frame.pack(padx=16, pady=4)
+
+        def select(gem):
+            if gem is None:
+                self.slot_map.pop(slot_num, None)
+            else:
+                self.slot_map[slot_num] = gem
+            # cur_slot 업데이트
+            for s in range(1, cfg["slots"]+1):
+                if s not in self.slot_map:
+                    self.cur_slot = s; break
+            else:
+                self.cur_slot = cfg["slots"] + 1
+            popup.destroy()
+            self._render()
+
+        for g in cfg["gems"]:
+            c = GEM_COLOR.get(g, "#888")
+            bg = GEM_BG.get(g, "#1C2A40")
+            ctk.CTkButton(frame, text=g, width=90, height=38,
+                fg_color=bg, hover_color=GEM_HOVER.get(g,"#2A3A55"), text_color=c,
+                border_width=1, border_color=c, corner_radius=8,
+                font=ctk.CTkFont(size=13),
+                command=lambda gem=g: select(gem)).pack(side="left", padx=4, pady=4)
+
+        # 지우기 버튼
+        ctk.CTkButton(popup, text="🗑 지우기", height=34, width=100,
+            fg_color="#3A1A1A", hover_color="#5A2A2A", text_color="#FF5555",
+            border_width=1, border_color="#FF5555",
+            command=lambda: select(None)).pack(pady=(4,14))
 
     # ── 페이지들 ──────────────────────────────────────────────
     def _page_orbit(self):
@@ -549,10 +598,6 @@ class App(ctk.CTk):
         self._refresh_opt_labels(cfg)
 
         br=ctk.CTkFrame(oc, fg_color="transparent"); br.pack(fill="x", padx=10, pady=(10,12))
-        ctk.CTkButton(br, text="📷 캡처", width=80, height=34,
-            fg_color="#1C3A1C", hover_color="#2A5A2A", text_color="#33CC66",
-            border_width=1, border_color="#33CC66",
-            command=self._start_capture).pack(side="left", padx=4)
 
         ctk.CTkButton(br, text="🪟 창 선택", width=90, height=34,
             fg_color="#1A2A3D", hover_color="#2A3A55", text_color="#4499FF",
@@ -566,14 +611,7 @@ class App(ctk.CTk):
             fg_color=watch_fg, hover_color="#2A1A3A", text_color=watch_color,
             border_width=1, border_color=watch_color,
             command=self._toggle_watch).pack(side="left", padx=4)
-        ctk.CTkButton(br, text="🔍 분석", width=80, height=34,
-            fg_color="#2A2010", hover_color="#3A3010", text_color=self.GOLD,
-            border_width=1, border_color=self.GOLD, command=self._analyze).pack(side="left", padx=4)
-        if self.ref_left>0:
-            ctk.CTkButton(br, text=f"🔄 새로고침 ({self.ref_left})", height=34,
-                fg_color="#1C2A40", hover_color="#2A3A55", text_color="#4499FF",
-                border_width=1, border_color="#4499FF",
-                command=self._do_refresh).pack(side="left", padx=4)
+
         ctk.CTkButton(br, text="→ 리버스 단계", height=34,
             fg_color=self.BORDER, hover_color="#2A3A55", text_color=self.MUTED,
             command=lambda: self._go("reverse")).pack(side="right", padx=4)
