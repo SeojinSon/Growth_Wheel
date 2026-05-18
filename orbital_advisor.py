@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.3.8"
+VERSION = "1.3.9"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -785,6 +785,11 @@ class App(ctk.CTk):
         try:
             img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
             cfg = ORBIT_CFG[self.orbit]
+
+            # 새 캡처 시작 — 이전 옵션/추천 초기화
+            self.opt_gems   = ["","",""]
+            self.opt_counts = [1,1,1]
+            self.rec        = None
 
             # 1. 옵션 OCR
             results = try_ocr(img)
