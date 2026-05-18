@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.2.6"
+VERSION = "1.2.7"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -466,35 +466,47 @@ class App(ctk.CTk):
         self._render()
 
     def _build_rec_panel(self):
-        r=self.rec
-        type_map={"refresh":("#FFB800","🔄 새로고침 권장!"),
-                  "pick":("#33CC66",f"✅ 옵션 {r['idx']+1} 선택!"),
-                  "warn":("#FF8800","⚠️ 주의")}
-        color,title=type_map.get(r["type"],("#888",""))
+        r = self.rec
+        if r["type"] == "refresh":
+            color = "#FFB800"
+            title = "🔄 새로고침 권장"
+            detail = r["msg"]
+        elif r["type"] == "pick":
+            color = "#33CC66"
+            gem  = self.opt_gems[r["idx"]]
+            cnt  = self.opt_counts[r["idx"]]
+            title = f"✅ 옵션 {r['idx']+1} 선택 — {gem} {cnt}개"
+            detail = r["msg"]
+        else:
+            color = "#FF8800"
+            title = "⚠️ 주의"
+            detail = r["msg"]
 
-        rc=ctk.CTkFrame(self.scroll, fg_color=color+"22", corner_radius=12,
-                        border_width=2, border_color=color)
+        rc = ctk.CTkFrame(self.scroll, fg_color="#0A1020", corner_radius=12,
+                          border_width=2, border_color=color)
         rc.pack(fill="x", padx=2, pady=6)
 
-        # 큰 추천 텍스트
-        self._lbl(rc, title, size=20, color=color, bold=True).pack(anchor="w", padx=16, pady=(14,2))
-        self._lbl(rc, r["msg"], size=13, color="#D0D8F0").pack(anchor="w", padx=16, pady=(0,10))
+        self._lbl(rc, "💬 추천", size=11, color=self.MUTED).pack(anchor="w", padx=16, pady=(10,2))
+        self._lbl(rc, title, size=18, color=color, bold=True).pack(anchor="w", padx=16, pady=(0,4))
+        self._lbl(rc, detail, size=13, color="#A0AABB").pack(anchor="w", padx=16, pady=(0,12))
 
-        br=ctk.CTkFrame(rc, fg_color="transparent"); br.pack(anchor="w", padx=16, pady=(0,14))
-        if r["type"]=="pick" and r["idx"] is not None:
+        br = ctk.CTkFrame(rc, fg_color="transparent")
+        br.pack(anchor="w", padx=16, pady=(0,14))
+
+        if r["type"] == "pick" and r["idx"] is not None:
             ctk.CTkButton(br, text=f"✅ 옵션 {r['idx']+1} 선택", height=38,
                 fg_color=color, hover_color=color, text_color="#000000",
-                font=ctk.CTkFont(size=14, weight="bold"),
-                border_width=0, corner_radius=8,
+                font=ctk.CTkFont(size=14, weight="bold"), corner_radius=8,
                 command=lambda: self._pick(r["idx"])).pack(side="left", padx=4)
-        if r["type"]=="refresh" and self.ref_left>0:
-            ctk.CTkButton(br, text="🔄 새로고침", height=38,
+
+        if r["type"] in ("refresh", "warn") and self.ref_left > 0:
+            ctk.CTkButton(br, text=f"🔄 새로고침 ({self.ref_left})", height=38,
                 fg_color="#1C2A40", hover_color="#2A3A55", text_color="#4499FF",
-                font=ctk.CTkFont(size=14),
-                border_width=1, border_color="#4499FF",
+                font=ctk.CTkFont(size=14), border_width=1, border_color="#4499FF",
                 command=self._do_refresh).pack(side="left", padx=4)
+
         for i in range(3):
-            if self.opt_gems[i] and i!=r.get("idx"):
+            if self.opt_gems[i] and i != r.get("idx"):
                 ctk.CTkButton(br, text=f"옵션 {i+1}", width=80, height=38,
                     fg_color=self.BORDER, hover_color="#2A3A55", text_color=self.MUTED,
                     font=ctk.CTkFont(size=13),
@@ -719,18 +731,11 @@ class App(ctk.CTk):
             hwnd = win32gui.WindowFromPoint((x, y))
             hwnd = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
             rect = win32gui.GetWindowRect(hwnd)
-            wx1, wy1, wx2, wy2 = rect
-            if wx2-wx1 < 10 or wy2-wy1 < 10:
+            x1, y1, x2, y2 = rect
+            if x2-x1 < 10 or y2-y1 < 10:
                 messagebox.showwarning("창 감지 실패", "창을 감지하지 못했어요.")
                 return
-            w = wx2 - wx1
-            h = wy2 - wy1
-            # 오른쪽 40%, 세로 상단 10% ~ 하단 90% 자동 크롭
-            cx1 = wx1 + int(w * 0.60)
-            cy1 = wy1 + int(h * 0.10)
-            cx2 = wx2
-            cy2 = wy1 + int(h * 0.90)
-            self._run_ocr(cx1, cy1, cx2, cy2)
+            self._run_ocr(x1, y1, x2, y2)
         except Exception as e:
             messagebox.showerror("오류", str(e))
 
@@ -780,11 +785,8 @@ class App(ctk.CTk):
             hwnd = win32gui.WindowFromPoint((x, y))
             hwnd = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
             rect = win32gui.GetWindowRect(hwnd)
-            wx1, wy1, wx2, wy2 = rect
-            w = wx2 - wx1; h = wy2 - wy1
-            # 오른쪽 40%, 세로 10~90% 자동 크롭
-            region = (wx1+int(w*0.60), wy1+int(h*0.10), wx2, wy1+int(h*0.90))
-            self._start_watch_with_region(region)
+            x1, y1, x2, y2 = rect
+            self._start_watch_with_region((x1, y1, x2, y2))
         except Exception as e:
             messagebox.showerror("오류", str(e))
 
