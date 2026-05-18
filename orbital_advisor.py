@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.3.4"
+VERSION = "1.3.5"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -206,9 +206,14 @@ def detect_slots_from_image(img, slot_count):
     }
 
     def closest_gem(r, g, b):
-        brightness = (r+g+b)/3
-        if brightness < 60 or brightness > 220: return None
-        best, best_d = None, 90
+        # 채도 체크 — 빈 슬롯(회색)은 채도가 낮음
+        mx, mn = max(r,g,b), min(r,g,b)
+        if mx == 0: return None
+        saturation = (mx - mn) / mx
+        if saturation < 0.45: return None  # 채도 낮으면 무시
+        if mx < 80: return None            # 너무 어두우면 무시
+
+        best, best_d = None, 80
         for gem, (gr, gg, gb) in GEM_RGB.items():
             d = ((r-gr)**2 + (g-gg)**2 + (b-gb)**2) ** 0.5
             if d < best_d: best_d = d; best = gem
@@ -217,7 +222,7 @@ def detect_slots_from_image(img, slot_count):
     img_rgb = img.convert("RGB")
     w, h = img_rgb.size
 
-    # 전체 이미지에서 보석 색상 픽셀 수집
+    from collections import defaultdict
     gem_pixels = {}
     for y in range(0, h, 3):
         for x in range(0, w, 3):
@@ -227,33 +232,39 @@ def detect_slots_from_image(img, slot_count):
     if not gem_pixels: return {}
 
     # 클러스터링
-    from collections import defaultdict
     visited = set()
     clusters = []
 
     for pos in list(gem_pixels.keys()):
         if pos in visited: continue
         px, py = pos
-        members = [(x,y) for (x,y) in gem_pixels
-                   if abs(x-px)<=20 and abs(y-py)<=20 and (x,y) not in visited]
+        members = [p for p in gem_pixels
+                   if abs(p[0]-px)<=25 and abs(p[1]-py)<=25 and p not in visited]
         members.append(pos)
         for m in members: visited.add(m)
-        if len(members) < 5: continue
+        if len(members) < 8: continue  # 최소 8픽셀 — 노이즈 제거
         cx = sum(p[0] for p in members) // len(members)
         cy = sum(p[1] for p in members) // len(members)
         votes = defaultdict(int)
         for p in members: votes[gem_pixels[p]] += 1
         top_gem = max(votes, key=votes.get)
+        # 주요 보석이 70% 이상 차지해야 신뢰
+        if votes[top_gem] / len(members) < 0.7: continue
         clusters.append((cx, cy, top_gem, len(members)))
 
     if not clusters: return {}
 
+    # 노이즈 클러스터 제거
     max_size = max(c[3] for c in clusters)
-    clusters = [c for c in clusters if c[3] >= max_size * 0.15]
+    clusters = [c for c in clusters if c[3] >= max_size * 0.2]
     clusters.sort(key=lambda c: c[0])
 
+    # 감지된 슬롯이 전체 슬롯 수와 같으면 신뢰도 낮음 — 반환 안 함
+    if len(clusters) >= slot_count:
+        return {}
+
     slot_map = {}
-    for i, (cx, cy, gem, _) in enumerate(clusters[:slot_count]):
+    for i, (cx, cy, gem, _) in enumerate(clusters):
         slot_map[i+1] = gem
     return slot_map
 
