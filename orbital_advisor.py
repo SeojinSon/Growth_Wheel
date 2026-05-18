@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.2.7"
+VERSION = "1.2.8"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -468,33 +468,29 @@ class App(ctk.CTk):
     def _build_rec_panel(self):
         r = self.rec
         if r["type"] == "refresh":
-            color = "#FFB800"
-            title = "🔄 새로고침 권장"
-            detail = r["msg"]
+            color  = "#FFB800"
+            text   = "🔄 새로고침을 추천합니다."
         elif r["type"] == "pick":
-            color = "#33CC66"
-            gem  = self.opt_gems[r["idx"]]
-            cnt  = self.opt_counts[r["idx"]]
-            title = f"✅ 옵션 {r['idx']+1} 선택 — {gem} {cnt}개"
-            detail = r["msg"]
+            color  = "#33CC66"
+            gem    = self.opt_gems[r["idx"]]
+            cnt    = self.opt_counts[r["idx"]]
+            text   = f"✅ {r['idx']+1}번 항목을 추천합니다. ({gem} {cnt}개)"
         else:
-            color = "#FF8800"
-            title = "⚠️ 주의"
-            detail = r["msg"]
+            color  = "#FF8800"
+            text   = f"⚠️ 좋은 옵션이 없습니다. 새로고침이 없다면 {r['idx']+1}번을 선택하세요."
 
         rc = ctk.CTkFrame(self.scroll, fg_color="#0A1020", corner_radius=12,
                           border_width=2, border_color=color)
         rc.pack(fill="x", padx=2, pady=6)
 
-        self._lbl(rc, "💬 추천", size=11, color=self.MUTED).pack(anchor="w", padx=16, pady=(10,2))
-        self._lbl(rc, title, size=18, color=color, bold=True).pack(anchor="w", padx=16, pady=(0,4))
-        self._lbl(rc, detail, size=13, color="#A0AABB").pack(anchor="w", padx=16, pady=(0,12))
+        self._lbl(rc, text, size=16, color=color, bold=True).pack(anchor="w", padx=16, pady=(14,4))
+        self._lbl(rc, r["msg"], size=13, color="#A0AABB").pack(anchor="w", padx=16, pady=(0,12))
 
         br = ctk.CTkFrame(rc, fg_color="transparent")
         br.pack(anchor="w", padx=16, pady=(0,14))
 
         if r["type"] == "pick" and r["idx"] is not None:
-            ctk.CTkButton(br, text=f"✅ 옵션 {r['idx']+1} 선택", height=38,
+            ctk.CTkButton(br, text=f"선택 완료", height=38,
                 fg_color=color, hover_color=color, text_color="#000000",
                 font=ctk.CTkFont(size=14, weight="bold"), corner_radius=8,
                 command=lambda: self._pick(r["idx"])).pack(side="left", padx=4)
