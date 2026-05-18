@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.3.5"
+VERSION = "1.3.6"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -188,8 +188,7 @@ def parse_game_state(text):
         if m:
             sel_left = int(m.group(1))
         else:
-            # "N회" 패턴 (선택 관련 숫자)
-            m = re.search(r'(\d+)회', clean)
+            m = re.search(r'남은.{0,4}선택.{0,4}횟수.{0,4}(\d+)', clean)
             if m:
                 sel_left = int(m.group(1))
 
@@ -224,8 +223,8 @@ def detect_slots_from_image(img, slot_count):
 
     from collections import defaultdict
     gem_pixels = {}
-    for y in range(0, h, 3):
-        for x in range(0, w, 3):
+    for y in range(0, h, 2):  # 2픽셀 간격으로 촘촘하게
+        for x in range(0, w, 2):
             g = closest_gem(*img_rgb.getpixel((x, y)))
             if g: gem_pixels[(x, y)] = g
 
@@ -239,17 +238,16 @@ def detect_slots_from_image(img, slot_count):
         if pos in visited: continue
         px, py = pos
         members = [p for p in gem_pixels
-                   if abs(p[0]-px)<=25 and abs(p[1]-py)<=25 and p not in visited]
+                   if abs(p[0]-px)<=20 and abs(p[1]-py)<=20 and p not in visited]
         members.append(pos)
         for m in members: visited.add(m)
-        if len(members) < 8: continue  # 최소 8픽셀 — 노이즈 제거
+        if len(members) < 4: continue  # 최소 4픽셀
         cx = sum(p[0] for p in members) // len(members)
         cy = sum(p[1] for p in members) // len(members)
         votes = defaultdict(int)
         for p in members: votes[gem_pixels[p]] += 1
         top_gem = max(votes, key=votes.get)
-        # 주요 보석이 70% 이상 차지해야 신뢰
-        if votes[top_gem] / len(members) < 0.7: continue
+        if votes[top_gem] / len(members) < 0.6: continue
         clusters.append((cx, cy, top_gem, len(members)))
 
     if not clusters: return {}
