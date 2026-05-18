@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.2.2"
+VERSION = "1.2.3"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -587,15 +587,74 @@ class App(ctk.CTk):
         try:
             img = ImageGrab.grab(bbox=(x1,y1,x2,y2))
             results = try_ocr(img)
+
+            # 디버그 창: 캡처 이미지 + OCR 텍스트 확인
+            self._show_debug(img, results)
+
             if not results:
-                messagebox.showwarning("인식 실패",
-                    "선택지를 인식하지 못했어요.\n\n💡 팁: 우측 선택지 패널 텍스트 부분만\n정확히 드래그해 주세요!")
                 return
             for i, (gem, count) in enumerate(results[:3]):
                 self.opt_gems[i]=gem; self.opt_counts[i]=count
             self._render()
         except Exception as e:
             messagebox.showerror("OCR 오류", f"오류가 발생했어요:\n{str(e)}")
+
+    def _show_debug(self, img, results):
+        """캡처 이미지와 OCR 결과를 보여주는 디버그 창"""
+        import io, base64
+        win = tk.Toplevel(self)
+        win.title("OCR 디버그")
+        win.configure(bg="#0D1525")
+        win.geometry("500x600")
+
+        tk.Label(win, text="캡처된 이미지", fg="#C9A84C", bg="#0D1525",
+                 font=("맑은 고딕", 11)).pack(pady=(12,4))
+
+        # 이미지 표시
+        try:
+            preview = img.copy()
+            preview.thumbnail((460, 200))
+            from PIL import ImageTk
+            photo = ImageTk.PhotoImage(preview)
+            lbl = tk.Label(win, image=photo, bg="#0D1525")
+            lbl.image = photo
+            lbl.pack(padx=10)
+        except Exception as e:
+            tk.Label(win, text=f"이미지 표시 실패: {e}", fg="#FF5555", bg="#0D1525").pack()
+
+        tk.Label(win, text="OCR 인식 결과", fg="#C9A84C", bg="#0D1525",
+                 font=("맑은 고딕", 11)).pack(pady=(12,4))
+
+        # 전처리 이미지도 표시
+        try:
+            proc = preprocess_img(img, invert=True)
+            proc.thumbnail((460, 200))
+            photo2 = ImageTk.PhotoImage(proc)
+            lbl2 = tk.Label(win, image=photo2, bg="#0D1525")
+            lbl2.image = photo2
+            lbl2.pack(padx=10)
+        except Exception:
+            pass
+
+        # OCR 텍스트 출력
+        try:
+            raw_text = pytesseract.image_to_string(
+                preprocess_img(img, invert=True), lang="kor", config="--psm 6")
+            text_box = tk.Text(win, height=8, bg="#070B14", fg="#D8DFF0",
+                               font=("맑은 고딕", 10), wrap="word")
+            text_box.pack(fill="x", padx=10, pady=4)
+            text_box.insert("end", f"[원본 OCR 텍스트]\n{raw_text}\n\n[인식된 결과]\n")
+            if results:
+                for g, c in results:
+                    text_box.insert("end", f"  → {g} {c}개\n")
+            else:
+                text_box.insert("end", "  인식 실패\n")
+            text_box.configure(state="disabled")
+        except Exception as e:
+            tk.Label(win, text=str(e), fg="#FF5555", bg="#0D1525").pack()
+
+        tk.Button(win, text="닫기", command=win.destroy,
+                  bg="#1C2A40", fg="#D8DFF0").pack(pady=8)
 
     def _pick_window(self):
         """게임 창을 클릭해서 선택"""
