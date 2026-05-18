@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -348,7 +348,7 @@ class App(ctk.CTk):
 
     def _render(self):
         for w in self.scroll.winfo_children(): w.destroy()
-        self.rec=None; self.pending_idx=None
+        self.pending_idx=None
         # 홈 버튼: 메인(orbit) 페이지에서는 숨기기
         if self.phase == "orbit":
             self._home_btn.pack_forget()
@@ -370,7 +370,7 @@ class App(ctk.CTk):
         ctk.CTkLabel(p, text=text.upper(), font=ctk.CTkFont(size=12),
                      text_color=self.MUTED).pack(anchor="w", padx=12, pady=(10,2))
 
-    def _go(self, phase): self.phase=phase; self._render()
+    def _go(self, phase): self.phase=phase; self.rec=None; self._render()
 
     def _gem_btn(self, parent, gem, cmd):
         c=GEM_COLOR.get(gem,"#888"); bg=GEM_BG.get(gem,"#1C2A40"); hv=GEM_HOVER.get(gem,"#2A3A55")
