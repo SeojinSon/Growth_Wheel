@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -61,12 +61,12 @@ GEM_BG     = {"루비":"#3D1515","토파즈":"#3D2E00","에메랄드":"#0D2E16",
 GEM_HOVER  = {"루비":"#5A2020","토파즈":"#5A4400","에메랄드":"#1A4A28",
               "사파이어":"#1A2A5A","자수정":"#2E1A5A","랜덤":"#3A3A3A","?":"#2A2A3A"}
 GEM_ALIASES = {
-    "루비":    ["루비","루바","루이"],
-    "토파즈":  ["토파즈","토파","토피즈","토파스"],
-    "에메랄드":["에메랄드","에메","에메랄","에머랄드"],
-    "사파이어":["사파이어","사파","사피이어","사파이"],
-    "자수정":  ["자수정","자수","자수졍"],
-    "랜덤":    ["랜덤한","랜덤","렌덤","랜","무작위","무작"],
+    "루비":    ["루비","루바","루이","루비를","루바를"],
+    "토파즈":  ["토파즈","토파","토피즈","토파스","토퐈즈","토퐈","토파쯔","도파즈","도파","토파즈를","파즈를"],
+    "에메랄드":["에메랄드","에메","에메랄","에머랄드","에메랄드를","에메를"],
+    "사파이어":["사파이어","사파","사피이어","사파이","사파이어를","사파를"],
+    "자수정":  ["자수정","자수","자수졍","자수정을","자수를"],
+    "랜덤":    ["랜덤한","랜덤","렌덤","랜","무작위","무작","랜덤을"],
 }
 TAG_COLOR = {"BEST":"#33CC66","GOOD":"#88CC44","OK":"#FFB800","NEUTRAL":"#888888","RISKY":"#FF8800","BAD":"#FF5555"}
 TAG_LABEL = {"BEST":"최선 ✅✅","GOOD":"좋음 ✅","OK":"보통","NEUTRAL":"중립","RISKY":"위험 ⚠️","BAD":"나쁨 ❌"}
@@ -269,10 +269,9 @@ def detect_slots_from_image(img, slot_count):
 
 def parse_ocr_text(text):
     results = []
-    # 전체 텍스트 공백 제거 후 패턴 탐색
     clean = re.sub(r'\s+', '', text)
 
-    # 패턴 1: 특정 보석
+    # 패턴 1: 완전한 문장 패턴 (가장 정확)
     for m in re.finditer(r'\d+%의확률로(\d+)개의슬롯에(\w+?)를부여한다', clean):
         count = int(m.group(1))
         gem   = detect_gem(m.group(2))
@@ -285,25 +284,32 @@ def parse_ocr_text(text):
         if 1 <= count <= 6 and ("랜덤", count) not in results:
             results.append(("랜덤", count))
 
-    # 중복 제거
-    seen, final = set(), []
-    for item in results:
-        if item not in seen:
-            seen.add(item); final.append(item)
-        if len(final) >= 3: break
+    # 패턴 3: 부여한다 앞에 보석명 찾기 (더 유연)
+    if len(results) < 3:
+        for m in re.finditer(r'(\d+)개의슬롯에(\w{2,6})(?:를|을)부여한다', clean):
+            count = int(m.group(1))
+            gem   = detect_gem(m.group(2))
+            if gem and 1 <= count <= 6 and (gem, count) not in results:
+                results.append((gem, count))
 
-    # 폴백: 줄별 파싱
-    if not final:
+    # 패턴 4: "N개" + 보석명 조합 (폴백)
+    if len(results) < 3:
         for line in text.replace('\n\n','\n').split('\n'):
             lc = re.sub(r'\s+', '', line)
             count_m = re.search(r'(\d+)개', lc)
             gem = detect_gem(lc)
             if gem and count_m:
                 count = int(count_m.group(1))
-                if 1 <= count <= 6:
-                    final.append((gem, count))
-            if len(final) >= 3: break
+                if 1 <= count <= 6 and (gem, count) not in results:
+                    results.append((gem, count))
+            if len(results) >= 3: break
 
+    # 중복 제거
+    seen, final = set(), []
+    for item in results:
+        if item not in seen:
+            seen.add(item); final.append(item)
+        if len(final) >= 3: break
     return final
 
 # ── 업데이트 ──────────────────────────────────────────────────
