@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.4.3"
+VERSION = "1.4.4"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -142,17 +142,30 @@ def preprocess_img(img, invert=False):
     return img
 
 def try_ocr(img):
-    """오른쪽 패널만 크롭해서 OCR — 텍스트 순서 = 화면 위→아래 순서"""
+    """Y좌표 기반 정렬로 위→아래 순서 보장"""
     w, h = img.size
-    # 오른쪽 45% 패널만 크롭
     panel = img.crop((int(w*0.55), int(h*0.03), w, int(h*0.97)))
 
     best = []
     for invert in (True, False):
         try:
             processed = preprocess_img(panel, invert)
-            text = pytesseract.image_to_string(processed, lang="kor", config="--psm 6")
-            results = parse_ocr_text(text)
+            # 단어별 위치 정보 포함해서 읽기
+            data = pytesseract.image_to_data(
+                processed, lang="kor",
+                output_type=pytesseract.Output.DICT,
+                config="--psm 6")
+
+            # Y좌표 기준으로 단어 정렬 (위→아래)
+            words = [
+                (data['top'][i], data['left'][i], data['text'][i])
+                for i in range(len(data['text']))
+                if data['text'][i].strip()
+            ]
+            words.sort(key=lambda x: (x[0]//15, x[1]))
+            ordered_text = ' '.join(t for _, _, t in words)
+
+            results = parse_ocr_text(ordered_text)
             if len(results) > len(best):
                 best = results
             if len(best) >= 3:
