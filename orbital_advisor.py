@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.4.4"
+VERSION = "1.4.7"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -132,47 +132,86 @@ def detect_gem(text):
             return gem
     return None
 
-def preprocess_img(img, invert=False):
-    w, h = img.size
-    img = img.resize((int(w*1.5), int(h*1.5)), Image.LANCZOS)  # 2x→1.5x로 속도 개선
-    img = img.convert("L")
-    if invert:
-        img = img.point(lambda x: 255 - x)
-    img = ImageEnhance.Contrast(img).enhance(2.0)
-    return img
+def preprocess_for_ocr(img):
+    """흰 텍스트 분리에 특화된 전처리"""
+    gray = img.convert("L")
+    inv  = gray.point(lambda x: 255 - x)          # 반전: 흰글→검정
+    enh  = ImageEnhance.Contrast(inv).enhance(3.0)  # 고대비
+    thr  = enh.point(lambda x: 255 if x > 160 else 0)  # 이진화
+    return thr
+
+def find_option_boxes(img):
+    """파란 선택지 박스 위치 찾기"""
+    img_rgb = img.convert("RGB")
+    w, h = img_rgb.size
+    right = int(w * 0.55)
+
+    def is_blue(r, g, b):
+        return b > 80 and b > r + 15 and b > g + 5 and r < 160 and g < 170
+
+    # 각 y줄에서 파란 픽셀 수 계산
+    prev_blue = False
+    box_start = None
+    boxes = []
+
+    for y in range(0, h, 3):
+        cnt = sum(1 for x in range(right, w, 4)
+                  if is_blue(*img_rgb.getpixel((x, y))))
+        blue = cnt > (w - right) // 20
+
+        if blue and not prev_blue:
+            box_start = y
+        elif not blue and prev_blue and box_start is not None:
+            if y - box_start > 15:
+                boxes.append((box_start, y))
+            box_start = None
+        prev_blue = blue
+
+    if box_start and h - box_start > 15:
+        boxes.append((box_start, h))
+
+    return boxes, right
 
 def try_ocr(img):
-    """Y좌표 기반 정렬로 위→아래 순서 보장"""
+    """파란 박스 감지 → 각 박스 개별 OCR → 순서 보장"""
     w, h = img.size
-    panel = img.crop((int(w*0.55), int(h*0.03), w, int(h*0.97)))
+    boxes, right = find_option_boxes(img)
 
-    best = []
-    for invert in (True, False):
+    results = []
+
+    if len(boxes) >= 2:
+        # 박스별 OCR
+        for y1, y2 in boxes[:3]:
+            crop = img.crop((right, max(0, y1-3), w, min(h, y2+3)))
+            processed = preprocess_for_ocr(crop)
+            try:
+                text = pytesseract.image_to_string(
+                    processed, lang="kor", config="--oem 1 --psm 6")
+                parsed = parse_ocr_text(text)
+                if parsed:
+                    results.append(parsed[0])
+            except Exception:
+                pass
+
+    # 박스 감지 실패 시 폴백: 오른쪽 패널 전체 OCR
+    if not results:
+        panel = img.crop((right, int(h*0.03), w, int(h*0.97)))
+        processed = preprocess_for_ocr(panel)
         try:
-            processed = preprocess_img(panel, invert)
-            # 단어별 위치 정보 포함해서 읽기
             data = pytesseract.image_to_data(
                 processed, lang="kor",
                 output_type=pytesseract.Output.DICT,
-                config="--psm 6")
-
-            # Y좌표 기준으로 단어 정렬 (위→아래)
-            words = [
-                (data['top'][i], data['left'][i], data['text'][i])
-                for i in range(len(data['text']))
-                if data['text'][i].strip()
-            ]
+                config="--oem 1 --psm 6")
+            words = [(data['top'][i], data['left'][i], data['text'][i])
+                     for i in range(len(data['text']))
+                     if data['text'][i].strip()]
             words.sort(key=lambda x: (x[0]//15, x[1]))
-            ordered_text = ' '.join(t for _, _, t in words)
-
-            results = parse_ocr_text(ordered_text)
-            if len(results) > len(best):
-                best = results
-            if len(best) >= 3:
-                break
+            text = ' '.join(t for _, _, t in words)
+            results = parse_ocr_text(text)
         except Exception:
-            continue
-    return best
+            pass
+
+    return results
 
 def parse_game_state(text):
     """OCR 텍스트에서 새로고침/선택 횟수 파싱"""
@@ -665,45 +704,59 @@ class App(ctk.CTk):
     def _build_rec_panel(self):
         r = self.rec
         if r["type"] == "refresh":
-            color  = "#FFB800"
-            text   = "🔄 새로고침을 추천합니다."
+            color = "#FFB800"
+            text  = "🔄 새로고침을 추천합니다."
         elif r["type"] == "pick":
-            color  = "#33CC66"
-            gem    = self.opt_gems[r["idx"]]
-            cnt    = self.opt_counts[r["idx"]]
-            text   = f"✅ {r['idx']+1}번 항목을 추천합니다. ({gem} {cnt}개)"
+            color = "#33CC66"
+            gem   = self.opt_gems[r["idx"]]
+            cnt   = self.opt_counts[r["idx"]]
+            text  = f"✅ {r['idx']+1}번 항목을 추천합니다. ({gem} {cnt}개)"
         else:
-            color  = "#FF8800"
-            text   = f"⚠️ 좋은 옵션이 없습니다. 새로고침이 없다면 {r['idx']+1}번을 선택하세요."
+            color = "#FF8800"
+            text  = f"⚠️ 좋은 옵션이 없습니다. 새로고침이 없다면 {r['idx']+1}번을 선택하세요."
 
         rc = ctk.CTkFrame(self.scroll, fg_color="#0A1020", corner_radius=12,
                           border_width=2, border_color=color)
         rc.pack(fill="x", padx=2, pady=6)
-
         self._lbl(rc, text, size=16, color=color, bold=True).pack(anchor="w", padx=16, pady=(14,4))
-        self._lbl(rc, r["msg"], size=13, color="#A0AABB").pack(anchor="w", padx=16, pady=(0,12))
+        self._lbl(rc, r["msg"], size=13, color="#A0AABB").pack(anchor="w", padx=16, pady=(0,10))
 
         br = ctk.CTkFrame(rc, fg_color="transparent")
         br.pack(anchor="w", padx=16, pady=(0,14))
 
         if r["type"] == "pick" and r["idx"] is not None:
-            ctk.CTkButton(br, text=f"선택 완료", height=38,
-                fg_color=color, hover_color=color, text_color="#000000",
-                font=ctk.CTkFont(size=14, weight="bold"), corner_radius=8,
-                command=lambda: self._pick(r["idx"])).pack(side="left", padx=4)
+            idx = r["idx"]
+            ctk.CTkButton(br, text="✅ 성공!", height=38, width=110,
+                fg_color="#1A3A1A", hover_color="#2A5A2A", text_color="#33CC66",
+                border_width=1, border_color="#33CC66",
+                font=ctk.CTkFont(size=14),
+                command=lambda: self._result_direct(idx, True)).pack(side="left", padx=4)
+            ctk.CTkButton(br, text="❌ 실패", height=38, width=110,
+                fg_color="#3A1A1A", hover_color="#5A2A2A", text_color="#FF5555",
+                border_width=1, border_color="#FF5555",
+                font=ctk.CTkFont(size=14),
+                command=lambda: self._result_direct(idx, False)).pack(side="left", padx=4)
 
         if r["type"] in ("refresh", "warn") and self.ref_left > 0:
             ctk.CTkButton(br, text=f"🔄 새로고침 ({self.ref_left})", height=38,
                 fg_color="#1C2A40", hover_color="#2A3A55", text_color="#4499FF",
-                font=ctk.CTkFont(size=14), border_width=1, border_color="#4499FF",
+                border_width=1, border_color="#4499FF",
+                font=ctk.CTkFont(size=14),
                 command=self._do_refresh).pack(side="left", padx=4)
 
-        for i in range(3):
-            if self.opt_gems[i] and i != r.get("idx"):
-                ctk.CTkButton(br, text=f"옵션 {i+1}", width=80, height=38,
-                    fg_color=self.BORDER, hover_color="#2A3A55", text_color=self.MUTED,
-                    font=ctk.CTkFont(size=13),
-                    command=lambda idx=i: self._pick(idx)).pack(side="left", padx=4)
+        # 다른 옵션 선택 버튼
+        if r["type"] == "pick":
+            for i in range(3):
+                if self.opt_gems[i] and i != r.get("idx"):
+                    ctk.CTkButton(br, text=f"옵션 {i+1}", width=80, height=38,
+                        fg_color=self.BORDER, hover_color="#2A3A55", text_color=self.MUTED,
+                        font=ctk.CTkFont(size=13),
+                        command=lambda idx=i: self._pick(idx)).pack(side="left", padx=4)
+
+    def _result_direct(self, idx, ok):
+        """추천 패널에서 바로 성공/실패 처리"""
+        self.pending_idx = idx
+        self._result(ok)
 
     def _build_pending_panel(self):
         g=self.opt_gems[self.pending_idx]; c=self.opt_counts[self.pending_idx]; r=get_rate(g,c)
@@ -802,46 +855,44 @@ class App(ctk.CTk):
             img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
             cfg = ORBIT_CFG[self.orbit]
 
-            # 새 캡처 시작 — 이전 옵션/추천 초기화
-            self.opt_gems   = ["","",""]
-            self.opt_counts = [1,1,1]
-            self.rec        = None
-
-            # 1. 옵션 OCR (오른쪽 패널 3등분, 순서 보장)
+            # 1. 옵션 OCR
             results = try_ocr(img)
 
             # 2. 새로고침/선택 횟수 파싱
             raw_text = pytesseract.image_to_string(
-                preprocess_img(img, invert=True), lang="kor", config="--psm 6")
+                preprocess_for_ocr(img), lang="kor",
+                config="--oem 1 --psm 6")
             ref_left, sel_left = parse_game_state(raw_text)
-            if ref_left is not None:
-                self.ref_left = min(ref_left, 5)
-            if sel_left is not None:
-                self.sel_left = min(sel_left, 10)
 
             # 3. 슬롯 색상 감지
             detected_slots = detect_slots_from_image(img, cfg["slots"])
-            if detected_slots:
-                self.slot_map = detected_slots
-                for s in range(1, cfg["slots"]+1):
-                    if s not in self.slot_map:
-                        self.cur_slot = s; break
-                else:
-                    self.cur_slot = cfg["slots"] + 1
 
-            # 4. 디버그 창
-            self._show_debug(img, results, detected_slots)
+            # 메인 스레드에서 UI 업데이트
+            self.after(0, lambda: self._apply_ocr_results(
+                results, ref_left, sel_left, detected_slots, img, cfg))
+        except Exception as e:
+            self.after(0, lambda: messagebox.showerror("OCR 오류", str(e)))
 
-            if not results:
-                self._render(); return
+    def _apply_ocr_results(self, results, ref_left, sel_left, detected_slots, img, cfg):
+        if ref_left is not None: self.ref_left = min(ref_left, 5)
+        if sel_left is not None: self.sel_left = min(sel_left, 10)
+        if detected_slots:
+            self.slot_map = detected_slots
+            for s in range(1, cfg["slots"]+1):
+                if s not in self.slot_map:
+                    self.cur_slot = s; break
+            else:
+                self.cur_slot = cfg["slots"] + 1
 
+        self._show_debug(img, results, detected_slots)
+
+        if results:
             for i, (gem, count) in enumerate(results[:3]):
                 self.opt_gems[i] = gem
                 self.opt_counts[i] = count
-
             self._auto_analyze()
-        except Exception as e:
-            messagebox.showerror("OCR 오류", f"오류가 발생했어요:\n{str(e)}")
+        else:
+            self._render()
 
     def _auto_analyze(self):
         cfg = ORBIT_CFG[self.orbit]
@@ -885,7 +936,7 @@ class App(ctk.CTk):
 
         # 전처리 이미지도 표시
         try:
-            proc = preprocess_img(img, invert=True)
+            proc = preprocess_for_ocr(img)
             proc.thumbnail((460, 200))
             photo2 = ImageTk.PhotoImage(proc)
             lbl2 = tk.Label(win, image=photo2, bg="#0D1525")
@@ -897,7 +948,7 @@ class App(ctk.CTk):
         # OCR 텍스트 출력
         try:
             raw_text = pytesseract.image_to_string(
-                preprocess_img(img, invert=True), lang="kor", config="--psm 6")
+                preprocess_for_ocr(img), lang="kor", config="--psm 6")
             text_box = tk.Text(win, height=8, bg="#070B14", fg="#D8DFF0",
                                font=("맑은 고딕", 10), wrap="word")
             text_box.pack(fill="x", padx=10, pady=4)
@@ -965,9 +1016,18 @@ class App(ctk.CTk):
             if x2-x1 < 10 or y2-y1 < 10:
                 messagebox.showwarning("창 감지 실패", "창을 감지하지 못했어요.")
                 return
-            self._run_ocr(x1, y1, x2, y2)
+            # 백그라운드에서 OCR 실행
+            self._show_ocr_loading()
+            threading.Thread(target=lambda: self._run_ocr(x1,y1,x2,y2), daemon=True).start()
         except Exception as e:
             messagebox.showerror("오류", str(e))
+
+    def _show_ocr_loading(self):
+        """OCR 진행 중 표시"""
+        self.opt_gems   = ["","",""]
+        self.opt_counts = [1,1,1]
+        self.rec        = None
+        self._render()
 
     def _toggle_watch(self):
         if self.watching:
