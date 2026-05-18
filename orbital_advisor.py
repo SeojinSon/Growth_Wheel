@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -211,18 +211,45 @@ def detect_slots_from_image(img, slot_count):
     for i, (_, gem) in enumerate(clusters[:slot_count]):
         slot_map[i+1] = gem
     return slot_map
+
+def parse_ocr_text(text):
     results = []
-    lines = [l.strip() for l in text.replace('\n\n','\n').split('\n') if l.strip()]
-    for line in lines:
-        # 글자 사이 공백 제거 (OCR이 "에 메 랄 드", "1 개" 처럼 읽는 문제 해결)
-        line_clean = re.sub(r'\s+', '', line)
-        count_m = re.search(r'(\d+)개', line_clean)
-        gem = detect_gem(line_clean)
-        if gem and count_m:
-            count = int(count_m.group(1))
-            if 1 <= count <= 6:
-                results.append((gem, count))
-    return results
+    # 전체 텍스트 공백 제거 후 패턴 탐색
+    clean = re.sub(r'\s+', '', text)
+
+    # 패턴 1: 특정 보석
+    for m in re.finditer(r'\d+%의확률로(\d+)개의슬롯에(\w+?)를부여한다', clean):
+        count = int(m.group(1))
+        gem   = detect_gem(m.group(2))
+        if gem and 1 <= count <= 6:
+            results.append((gem, count))
+
+    # 패턴 2: 랜덤 보석
+    for m in re.finditer(r'\d+%의확률로(\d+)개의슬롯에랜덤한보석을부여한다', clean):
+        count = int(m.group(1))
+        if 1 <= count <= 6 and ("랜덤", count) not in results:
+            results.append(("랜덤", count))
+
+    # 중복 제거
+    seen, final = set(), []
+    for item in results:
+        if item not in seen:
+            seen.add(item); final.append(item)
+        if len(final) >= 3: break
+
+    # 폴백: 줄별 파싱
+    if not final:
+        for line in text.replace('\n\n','\n').split('\n'):
+            lc = re.sub(r'\s+', '', line)
+            count_m = re.search(r'(\d+)개', lc)
+            gem = detect_gem(lc)
+            if gem and count_m:
+                count = int(count_m.group(1))
+                if 1 <= count <= 6:
+                    final.append((gem, count))
+            if len(final) >= 3: break
+
+    return final
 
 # ── 업데이트 ──────────────────────────────────────────────────
 def fetch_update(callback):
