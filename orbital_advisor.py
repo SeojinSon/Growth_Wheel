@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.1.5"
+VERSION = "1.2.0"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -22,6 +22,17 @@ try:
 except ImportError:
     print("customtkinter 설치 중..."); _install("customtkinter")
     import customtkinter as ctk
+
+try:
+    import mss
+    MSS_OK = True
+except ImportError:
+    _install("mss")
+    try:
+        import mss
+        MSS_OK = True
+    except:
+        MSS_OK = False
 
 try:
     import pytesseract
@@ -138,7 +149,47 @@ def fetch_update(callback):
 def apply_update(new_code):
     path=os.path.abspath(__file__); tmp=path+".tmp"
     with open(tmp,"w",encoding="utf-8") as f: f.write(new_code)
-    os.replace(tmp, path); subprocess.Popen([sys.executable, path]); sys.exit(0)
+    os.replace(tmp, path)
+    pythonw = sys.executable.replace("python.exe", "pythonw.exe")
+    if not os.path.exists(pythonw): pythonw = sys.executable
+    subprocess.Popen([pythonw, path]); sys.exit(0)
+
+# ── 화면 감시 ─────────────────────────────────────────────────
+class ScreenWatcher:
+    def __init__(self, region, on_change):
+        self.region   = region   # (x1, y1, x2, y2)
+        self.on_change = on_change
+        self.running  = False
+        self._last    = None
+
+    def start(self):
+        self.running = True
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def stop(self):
+        self.running = False
+
+    def _diff(self, img1, img2):
+        a = list(img1.resize((30,30)).convert('L').getdata())
+        b = list(img2.resize((30,30)).convert('L').getdata())
+        return sum(abs(x-y) for x,y in zip(a,b)) / (len(a)*255)
+
+    def _loop(self):
+        import time
+        while self.running:
+            try:
+                x1,y1,x2,y2 = self.region
+                img = ImageGrab.grab(bbox=(x1,y1,x2,y2))
+                if self._last is not None:
+                    if self._diff(img, self._last) > 0.06:
+                        self._last = img
+                        self.on_change(img)
+                        time.sleep(2.5)  # 감지 후 쿨다운
+                        continue
+                self._last = img
+            except Exception:
+                pass
+            import time as _t; _t.sleep(1)
 
 # ── 앱 ────────────────────────────────────────────────────────
 class App(ctk.CTk):
@@ -156,6 +207,7 @@ class App(ctk.CTk):
         self.cur_slot=1; self.sel_left=10; self.ref_left=5; self.slot_map={}
         self.opt_gems=["","",""]; self.opt_counts=[1,1,1]
         self.pending_idx=None; self.analyses=[None,None,None]; self.rec=None
+        self.watch_region=None; self.watcher=None; self.watching=False
 
     def _build_chrome(self):
         bar=ctk.CTkFrame(self, fg_color="#0D1525", height=52, corner_radius=0)
@@ -328,6 +380,14 @@ class App(ctk.CTk):
             fg_color="#1C3A1C", hover_color="#2A5A2A", text_color="#33CC66",
             border_width=1, border_color="#33CC66",
             command=self._start_capture).pack(side="left", padx=4)
+
+        watch_color = "#FF5555" if self.watching else "#AA66FF"
+        watch_text  = "🔴 감지 중" if self.watching else "📡 자동 감지"
+        watch_fg    = "#3A1515" if self.watching else "#1E0D3D"
+        ctk.CTkButton(br, text=watch_text, height=34,
+            fg_color=watch_fg, hover_color="#2A1A3A", text_color=watch_color,
+            border_width=1, border_color=watch_color,
+            command=self._toggle_watch).pack(side="left", padx=4)
         ctk.CTkButton(br, text="🔍 분석", width=80, height=34,
             fg_color="#2A2010", hover_color="#3A3010", text_color=self.GOLD,
             border_width=1, border_color=self.GOLD, command=self._analyze).pack(side="left", padx=4)
@@ -435,11 +495,11 @@ class App(ctk.CTk):
         self.pending_idx=None; self.rec=None; self.analyses=[None,None,None]
 
     def _go_home(self):
-        if self.phase in ("orbit", "main", "sub"):
-            self._init_state(); self._go("orbit")
+        if self.phase in ("orbit","main","sub"):
+            self._stop_watch(); self._init_state(); self._go("orbit")
         else:
-            if messagebox.askyesno("홈으로", "현재 진행 상황이 초기화돼요.\n홈으로 돌아갈까요?"):
-                self._init_state(); self._go("orbit")
+            if messagebox.askyesno("홈으로","현재 진행 상황이 초기화돼요.\n홈으로 돌아갈까요?"):
+                self._stop_watch(); self._init_state(); self._go("orbit")
 
     def _back_to_setup(self):
         if messagebox.askyesno("설정 변경", "현재 진행 상황이 초기화돼요.\n설정을 변경할까요?"):
@@ -452,25 +512,25 @@ class App(ctk.CTk):
         self.withdraw()
         self.after(400, self._show_overlay)
 
-    def _show_overlay(self):
+    def _show_overlay(self, watch_mode=False):
         overlay=tk.Toplevel()
         overlay.attributes("-fullscreen", True)
         overlay.attributes("-alpha", 0.35)
         overlay.attributes("-topmost", True)
         overlay.configure(bg="gray10")
 
-        tk.Label(overlay, text="📷  선택지 3개가 있는 영역을 드래그하세요  |  ESC: 취소",
-                 fg="yellow", bg="gray10", font=("맑은 고딕", 13)).place(relx=0.5, rely=0.02, anchor="center")
+        msg = "📡  자동 감지 영역을 드래그하세요  |  ESC: 취소" if watch_mode else "📷  선택지 3개가 있는 영역을 드래그하세요  |  ESC: 취소"
+        tk.Label(overlay, text=msg, fg="yellow", bg="gray10",
+                 font=("맑은 고딕", 13)).place(relx=0.5, rely=0.02, anchor="center")
 
         canvas=tk.Canvas(overlay, cursor="cross", bg="gray10", highlightthickness=0)
         canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
-
         state={"start":None, "rect":None}
 
         def on_press(e):
-            state["start"]=(e.x, e.y)
+            state["start"]=(e.x,e.y)
             if state["rect"]: canvas.delete(state["rect"])
-            state["rect"]=canvas.create_rectangle(e.x,e.y,e.x,e.y, outline="#FFD700", width=2)
+            state["rect"]=canvas.create_rectangle(e.x,e.y,e.x,e.y,outline="#FFD700",width=2)
 
         def on_drag(e):
             if state["start"] and state["rect"]:
@@ -482,10 +542,12 @@ class App(ctk.CTk):
                 overlay.destroy(); self.deiconify()
                 x1,y1=min(sx,ex),min(sy,ey); x2,y2=max(sx,ex),max(sy,ey)
                 if x2-x1>20 and y2-y1>20:
-                    self.after(150, lambda: self._run_ocr(x1,y1,x2,y2))
+                    if watch_mode:
+                        self.after(150, lambda: self._start_watch_with_region((x1,y1,x2,y2)))
+                    else:
+                        self.after(150, lambda: self._run_ocr(x1,y1,x2,y2))
 
         def on_esc(e): overlay.destroy(); self.deiconify()
-
         canvas.bind("<ButtonPress-1>", on_press)
         canvas.bind("<B1-Motion>", on_drag)
         canvas.bind("<ButtonRelease-1>", on_release)
@@ -511,7 +573,47 @@ class App(ctk.CTk):
         except Exception as e:
             messagebox.showerror("OCR 오류", f"오류가 발생했어요:\n{str(e)}")
 
-    # ── Reverse Change ────────────────────────────────────────
+    def _toggle_watch(self):
+        if self.watching:
+            self._stop_watch()
+        else:
+            if self.watch_region:
+                self._start_watch_with_region(self.watch_region)
+            else:
+                # 처음엔 영역 지정 필요
+                self._start_capture_for_watch()
+
+    def _start_capture_for_watch(self):
+        self.withdraw()
+        self.after(400, lambda: self._show_overlay(watch_mode=True))
+
+    def _start_watch_with_region(self, region):
+        self.watch_region = region
+        self.watching = True
+        self.watcher = ScreenWatcher(region, self._on_screen_change)
+        self.watcher.start()
+        self._render()
+
+    def _stop_watch(self):
+        if self.watcher:
+            self.watcher.stop()
+            self.watcher = None
+        self.watching = False
+        self._render()
+
+    def _on_screen_change(self, img):
+        """화면 변화 감지 시 자동 OCR"""
+        try:
+            processed = preprocess_img(img)
+            text = pytesseract.image_to_string(processed, lang="kor", config="--psm 6")
+            results = parse_ocr_text(text)
+            if results:
+                for i, (gem, count) in enumerate(results[:3]):
+                    self.opt_gems[i] = gem
+                    self.opt_counts[i] = count
+                self.after(0, self._render)
+        except Exception:
+            pass
     def _page_reverse(self):
         cfg=ORBIT_CFG[self.orbit]; max_s=cfg["slots"]
         ev_list=[s for s in range(1,max_s+1) if s%2==0]
