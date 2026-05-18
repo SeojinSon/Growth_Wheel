@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -112,16 +112,37 @@ def detect_gem(text):
             return gem
     return None
 
-def preprocess_img(img):
+def preprocess_img(img, invert=False):
     w, h = img.size
     img = img.resize((w*2, h*2), Image.LANCZOS)
     img = img.convert("L")
-    # 어두운 배경이면 반전 (게임 UI는 밝은 글씨+어두운 배경)
-    avg = sum(img.getdata()) / (w*2 * h*2)
-    if avg < 128:
+    if invert:
         img = img.point(lambda x: 255 - x)
     img = ImageEnhance.Contrast(img).enhance(2.0)
     return img
+
+def try_ocr(img):
+    """여러 방식으로 OCR 시도 후 가장 좋은 결과 반환"""
+    attempts = [
+        ("--psm 6", True),
+        ("--psm 4", True),
+        ("--psm 6", False),
+        ("--psm 4", False),
+        ("--psm 3", True),
+    ]
+    best = []
+    for config, invert in attempts:
+        try:
+            processed = preprocess_img(img, invert)
+            text = pytesseract.image_to_string(processed, lang="kor", config=config)
+            results = parse_ocr_text(text)
+            if len(results) > len(best):
+                best = results
+            if len(best) >= 3:
+                break
+        except Exception:
+            continue
+    return best
 
 def parse_ocr_text(text):
     results = []
@@ -564,19 +585,14 @@ class App(ctk.CTk):
 
     def _run_ocr(self, x1, y1, x2, y2):
         try:
-            img=ImageGrab.grab(bbox=(x1,y1,x2,y2))
-            img=preprocess_img(img)
-            text=pytesseract.image_to_string(img, lang="kor", config="--psm 6")
-            results=parse_ocr_text(text)
-
+            img = ImageGrab.grab(bbox=(x1,y1,x2,y2))
+            results = try_ocr(img)
             if not results:
-                messagebox.showwarning("인식 실패", "선택지를 인식하지 못했어요.\n선택지 텍스트 부분만 정확히 드래그해 주세요!")
+                messagebox.showwarning("인식 실패",
+                    "선택지를 인식하지 못했어요.\n\n💡 팁: 우측 선택지 패널 텍스트 부분만\n정확히 드래그해 주세요!")
                 return
-
-            # 최대 3개 채우기
             for i, (gem, count) in enumerate(results[:3]):
                 self.opt_gems[i]=gem; self.opt_counts[i]=count
-
             self._render()
         except Exception as e:
             messagebox.showerror("OCR 오류", f"오류가 발생했어요:\n{str(e)}")
@@ -700,15 +716,11 @@ class App(ctk.CTk):
         self._render()
 
     def _on_screen_change(self, img):
-        """화면 변화 감지 시 자동 OCR"""
         try:
-            processed = preprocess_img(img)
-            text = pytesseract.image_to_string(processed, lang="kor", config="--psm 6")
-            results = parse_ocr_text(text)
+            results = try_ocr(img)
             if results:
                 for i, (gem, count) in enumerate(results[:3]):
-                    self.opt_gems[i] = gem
-                    self.opt_counts[i] = count
+                    self.opt_gems[i]=gem; self.opt_counts[i]=count
                 self.after(0, self._render)
         except Exception:
             pass
