@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.4.7"
+VERSION = "1.4.8"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -133,85 +133,40 @@ def detect_gem(text):
     return None
 
 def preprocess_for_ocr(img):
-    """흰 텍스트 분리에 특화된 전처리"""
+    """흰 텍스트만 추출 — 단순 임계값"""
     gray = img.convert("L")
-    inv  = gray.point(lambda x: 255 - x)          # 반전: 흰글→검정
-    enh  = ImageEnhance.Contrast(inv).enhance(3.0)  # 고대비
-    thr  = enh.point(lambda x: 255 if x > 160 else 0)  # 이진화
-    return thr
-
-def find_option_boxes(img):
-    """파란 선택지 박스 위치 찾기"""
-    img_rgb = img.convert("RGB")
-    w, h = img_rgb.size
-    right = int(w * 0.55)
-
-    def is_blue(r, g, b):
-        return b > 80 and b > r + 15 and b > g + 5 and r < 160 and g < 170
-
-    # 각 y줄에서 파란 픽셀 수 계산
-    prev_blue = False
-    box_start = None
-    boxes = []
-
-    for y in range(0, h, 3):
-        cnt = sum(1 for x in range(right, w, 4)
-                  if is_blue(*img_rgb.getpixel((x, y))))
-        blue = cnt > (w - right) // 20
-
-        if blue and not prev_blue:
-            box_start = y
-        elif not blue and prev_blue and box_start is not None:
-            if y - box_start > 15:
-                boxes.append((box_start, y))
-            box_start = None
-        prev_blue = blue
-
-    if box_start and h - box_start > 15:
-        boxes.append((box_start, h))
-
-    return boxes, right
+    # 밝은 픽셀(흰 글씨, >180) → 검정, 어두운 배경 → 흰색
+    return gray.point(lambda x: 0 if x > 180 else 255)
 
 def try_ocr(img):
-    """파란 박스 감지 → 각 박스 개별 OCR → 순서 보장"""
+    """오른쪽 패널 OCR — 단순하고 빠르게"""
     w, h = img.size
-    boxes, right = find_option_boxes(img)
+    panel = img.crop((int(w*0.55), int(h*0.03), w, int(h*0.97)))
+    processed = preprocess_for_ocr(panel)
 
-    results = []
+    try:
+        data = pytesseract.image_to_data(
+            processed, lang="kor",
+            output_type=pytesseract.Output.DICT,
+            config="--oem 1 --psm 6")
+        words = [(data['top'][i], data['left'][i], data['text'][i])
+                 for i in range(len(data['text']))
+                 if data['text'][i].strip()]
+        words.sort(key=lambda x: (x[0]//15, x[1]))
+        text = ' '.join(t for _, _, t in words)
+        results = parse_ocr_text(text)
+        if results:
+            return results
+    except Exception:
+        pass
 
-    if len(boxes) >= 2:
-        # 박스별 OCR
-        for y1, y2 in boxes[:3]:
-            crop = img.crop((right, max(0, y1-3), w, min(h, y2+3)))
-            processed = preprocess_for_ocr(crop)
-            try:
-                text = pytesseract.image_to_string(
-                    processed, lang="kor", config="--oem 1 --psm 6")
-                parsed = parse_ocr_text(text)
-                if parsed:
-                    results.append(parsed[0])
-            except Exception:
-                pass
-
-    # 박스 감지 실패 시 폴백: 오른쪽 패널 전체 OCR
-    if not results:
-        panel = img.crop((right, int(h*0.03), w, int(h*0.97)))
-        processed = preprocess_for_ocr(panel)
-        try:
-            data = pytesseract.image_to_data(
-                processed, lang="kor",
-                output_type=pytesseract.Output.DICT,
-                config="--oem 1 --psm 6")
-            words = [(data['top'][i], data['left'][i], data['text'][i])
-                     for i in range(len(data['text']))
-                     if data['text'][i].strip()]
-            words.sort(key=lambda x: (x[0]//15, x[1]))
-            text = ' '.join(t for _, _, t in words)
-            results = parse_ocr_text(text)
-        except Exception:
-            pass
-
-    return results
+    # 폴백: 원본 이미지 반전
+    try:
+        inv = panel.convert("L").point(lambda x: 255 - x)
+        text2 = pytesseract.image_to_string(inv, lang="kor", config="--oem 1 --psm 6")
+        return parse_ocr_text(text2)
+    except Exception:
+        return []
 
 def parse_game_state(text):
     """OCR 텍스트에서 새로고침/선택 횟수 파싱"""
