@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.3.3"
+VERSION = "1.3.4"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -164,6 +164,37 @@ def try_ocr(img):
             continue
     return best
 
+def parse_game_state(text):
+    """OCR 텍스트에서 새로고침/선택 횟수 파싱"""
+    clean = re.sub(r'\s+', '', text)
+
+    # 새로고침 횟수: "새로고침N/M" 또는 "N/5"
+    ref_left = None
+    m = re.search(r'새로고침(\d+)[/／](\d+)', clean)
+    if m:
+        ref_left = int(m.group(1))
+    else:
+        m = re.search(r'(\d+)[/／]5', clean)
+        if m:
+            ref_left = int(m.group(1))
+
+    # 남은 선택 횟수
+    sel_left = None
+    m = re.search(r'남은선택횟수(\d+)', clean)
+    if m:
+        sel_left = int(m.group(1))
+    else:
+        m = re.search(r'선택횟수(\d+)', clean)
+        if m:
+            sel_left = int(m.group(1))
+        else:
+            # "N회" 패턴 (선택 관련 숫자)
+            m = re.search(r'(\d+)회', clean)
+            if m:
+                sel_left = int(m.group(1))
+
+    return ref_left, sel_left
+
 def detect_slots_from_image(img, slot_count):
     """캡처 이미지에서 슬롯의 보석 색상을 감지"""
     GEM_RGB = {
@@ -175,60 +206,54 @@ def detect_slots_from_image(img, slot_count):
     }
 
     def closest_gem(r, g, b):
-        best, best_d = None, 80
+        brightness = (r+g+b)/3
+        if brightness < 60 or brightness > 220: return None
+        best, best_d = None, 90
         for gem, (gr, gg, gb) in GEM_RGB.items():
             d = ((r-gr)**2 + (g-gg)**2 + (b-gb)**2) ** 0.5
-            if d < best_d:
-                best_d = d; best = gem
+            if d < best_d: best_d = d; best = gem
         return best
 
     img_rgb = img.convert("RGB")
     w, h = img_rgb.size
 
-    # 보석 픽셀이 가장 많은 y 줄 찾기
-    best_y, best_cnt = h//2, 0
-    for y in range(h//5, 4*h//5, 4):
-        cnt = sum(1 for x in range(0, w, 4)
-                  if closest_gem(*img_rgb.getpixel((x, y))))
-        if cnt > best_cnt:
-            best_cnt, best_y = cnt, y
-
-    if best_cnt < 2:
-        return {}
-
-    # best_y 근처 밴드에서 x별 보석 감지
-    y1, y2 = max(0, best_y-15), min(h, best_y+15)
-    x_gem_map = {}
-    for x in range(0, w, 2):
-        votes = {}
-        for y in range(y1, y2, 2):
+    # 전체 이미지에서 보석 색상 픽셀 수집
+    gem_pixels = {}
+    for y in range(0, h, 3):
+        for x in range(0, w, 3):
             g = closest_gem(*img_rgb.getpixel((x, y)))
-            if g: votes[g] = votes.get(g, 0) + 1
-        if votes:
-            top = max(votes, key=votes.get)
-            if votes[top] >= 2:
-                x_gem_map[x] = top
+            if g: gem_pixels[(x, y)] = g
 
-    if not x_gem_map:
-        return {}
+    if not gem_pixels: return {}
 
-    # 연속된 x를 클러스터로 묶기
-    xs = sorted(x_gem_map.keys())
-    clusters, cxs, cg = [], [xs[0]], x_gem_map[xs[0]]
-    for x in xs[1:]:
-        if x - cxs[-1] <= 8 and x_gem_map[x] == cg:
-            cxs.append(x)
-        else:
-            if len(cxs) >= 3:
-                clusters.append((sum(cxs)//len(cxs), cg))
-            cxs, cg = [x], x_gem_map[x]
-    if len(cxs) >= 3:
-        clusters.append((sum(cxs)//len(cxs), cg))
+    # 클러스터링
+    from collections import defaultdict
+    visited = set()
+    clusters = []
 
+    for pos in list(gem_pixels.keys()):
+        if pos in visited: continue
+        px, py = pos
+        members = [(x,y) for (x,y) in gem_pixels
+                   if abs(x-px)<=20 and abs(y-py)<=20 and (x,y) not in visited]
+        members.append(pos)
+        for m in members: visited.add(m)
+        if len(members) < 5: continue
+        cx = sum(p[0] for p in members) // len(members)
+        cy = sum(p[1] for p in members) // len(members)
+        votes = defaultdict(int)
+        for p in members: votes[gem_pixels[p]] += 1
+        top_gem = max(votes, key=votes.get)
+        clusters.append((cx, cy, top_gem, len(members)))
+
+    if not clusters: return {}
+
+    max_size = max(c[3] for c in clusters)
+    clusters = [c for c in clusters if c[3] >= max_size * 0.15]
     clusters.sort(key=lambda c: c[0])
 
     slot_map = {}
-    for i, (_, gem) in enumerate(clusters[:slot_count]):
+    for i, (cx, cy, gem, _) in enumerate(clusters[:slot_count]):
         slot_map[i+1] = gem
     return slot_map
 
@@ -717,24 +742,30 @@ class App(ctk.CTk):
             # 1. 옵션 OCR
             results = try_ocr(img)
 
-            # 2. 슬롯 색상 감지
+            # 2. 새로고침/선택 횟수 파싱
+            raw_text = pytesseract.image_to_string(
+                preprocess_img(img, invert=True), lang="kor", config="--psm 6")
+            ref_left, sel_left = parse_game_state(raw_text)
+            if ref_left is not None:
+                self.ref_left = min(ref_left, 5)
+            if sel_left is not None:
+                self.sel_left = min(sel_left, 10)
+
+            # 3. 슬롯 색상 감지
             detected_slots = detect_slots_from_image(img, cfg["slots"])
             if detected_slots:
                 self.slot_map = detected_slots
-                # cur_slot = 첫 번째 빈 슬롯
                 for s in range(1, cfg["slots"]+1):
                     if s not in self.slot_map:
-                        self.cur_slot = s
-                        break
+                        self.cur_slot = s; break
                 else:
                     self.cur_slot = cfg["slots"] + 1
 
-            # 3. 디버그 창
+            # 4. 디버그 창
             self._show_debug(img, results, detected_slots)
 
             if not results:
-                self._render()
-                return
+                self._render(); return
 
             for i, (gem, count) in enumerate(results[:3]):
                 self.opt_gems[i] = gem
