@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # orbital_advisor.py — 운파고
-VERSION = "1.2.5"
+VERSION = "1.2.6"
 
 # ════════════════════════════════════════════════════
 #  ★ 업데이트 URL
@@ -471,26 +471,33 @@ class App(ctk.CTk):
                   "pick":("#33CC66",f"✅ 옵션 {r['idx']+1} 선택!"),
                   "warn":("#FF8800","⚠️ 주의")}
         color,title=type_map.get(r["type"],("#888",""))
-        rc=ctk.CTkFrame(self.scroll, fg_color=self.CARD, corner_radius=10,
-                        border_width=1, border_color=color)
-        rc.pack(fill="x", padx=2, pady=4)
-        self._lbl(rc, title, size=15, color=color, bold=True).pack(anchor="w", padx=12, pady=(10,2))
-        self._lbl(rc, r["msg"], size=13, color="#A0AABB").pack(anchor="w", padx=12, pady=(0,8))
-        br=ctk.CTkFrame(rc, fg_color="transparent"); br.pack(anchor="w", padx=12, pady=(0,12))
+
+        rc=ctk.CTkFrame(self.scroll, fg_color=color+"22", corner_radius=12,
+                        border_width=2, border_color=color)
+        rc.pack(fill="x", padx=2, pady=6)
+
+        # 큰 추천 텍스트
+        self._lbl(rc, title, size=20, color=color, bold=True).pack(anchor="w", padx=16, pady=(14,2))
+        self._lbl(rc, r["msg"], size=13, color="#D0D8F0").pack(anchor="w", padx=16, pady=(0,10))
+
+        br=ctk.CTkFrame(rc, fg_color="transparent"); br.pack(anchor="w", padx=16, pady=(0,14))
         if r["type"]=="pick" and r["idx"] is not None:
-            ctk.CTkButton(br, text=f"옵션 {r['idx']+1} 선택", height=32,
-                fg_color=self.BORDER, hover_color="#2A3A55", text_color=color,
-                border_width=1, border_color=color,
+            ctk.CTkButton(br, text=f"✅ 옵션 {r['idx']+1} 선택", height=38,
+                fg_color=color, hover_color=color, text_color="#000000",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                border_width=0, corner_radius=8,
                 command=lambda: self._pick(r["idx"])).pack(side="left", padx=4)
         if r["type"]=="refresh" and self.ref_left>0:
-            ctk.CTkButton(br, text="새로고침", height=32,
+            ctk.CTkButton(br, text="🔄 새로고침", height=38,
                 fg_color="#1C2A40", hover_color="#2A3A55", text_color="#4499FF",
+                font=ctk.CTkFont(size=14),
                 border_width=1, border_color="#4499FF",
                 command=self._do_refresh).pack(side="left", padx=4)
         for i in range(3):
             if self.opt_gems[i] and i!=r.get("idx"):
-                ctk.CTkButton(br, text=f"옵션 {i+1}", width=72, height=32,
+                ctk.CTkButton(br, text=f"옵션 {i+1}", width=80, height=38,
                     fg_color=self.BORDER, hover_color="#2A3A55", text_color=self.MUTED,
+                    font=ctk.CTkFont(size=13),
                     command=lambda idx=i: self._pick(idx)).pack(side="left", padx=4)
 
     def _build_pending_panel(self):
@@ -590,16 +597,29 @@ class App(ctk.CTk):
             img = ImageGrab.grab(bbox=(x1,y1,x2,y2))
             results = try_ocr(img)
 
-            # 디버그 창: 캡처 이미지 + OCR 텍스트 확인
+            # 디버그 창
             self._show_debug(img, results)
 
             if not results:
                 return
             for i, (gem, count) in enumerate(results[:3]):
                 self.opt_gems[i]=gem; self.opt_counts[i]=count
-            self._render()
+
+            # OCR 후 자동 분석
+            self._auto_analyze()
         except Exception as e:
             messagebox.showerror("OCR 오류", f"오류가 발생했어요:\n{str(e)}")
+
+    def _auto_analyze(self):
+        cfg = ORBIT_CFG[self.orbit]
+        self.analyses = [
+            score_option(self.opt_gems[i], self.opt_counts[i], self.cur_slot,
+                         cfg["slots"], self.main_gem, self.sub_gem or "상관없음", cfg["gemCount"])
+            if self.opt_gems[i] else None for i in range(3)
+        ]
+        self.rec = get_recommendation(self.analyses, self.cur_slot, self.ref_left,
+                                      self.cur_slot % 2 == 0, cfg["mainProb"])
+        self._render()
 
     def _show_debug(self, img, results):
         """캡처 이미지와 OCR 결과를 보여주는 디버그 창"""
@@ -788,7 +808,7 @@ class App(ctk.CTk):
             if results:
                 for i, (gem, count) in enumerate(results[:3]):
                     self.opt_gems[i]=gem; self.opt_counts[i]=count
-                self.after(0, self._render)
+                self.after(0, self._auto_analyze)
         except Exception:
             pass
     def _page_reverse(self):
